@@ -208,8 +208,9 @@ class SRGAN():
         # Create data loader
         loader = DataLoader(
             datapath,
-            self.height_hr, self.width_hr, 
-            self.height_lr, self.width_lr
+            self.height_hr, self.width_hr,
+            self.height_lr, self.width_lr,
+            self.upscaling_factor
         )
 
         # Shape of output from discriminator
