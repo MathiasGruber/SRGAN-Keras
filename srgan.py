@@ -96,7 +96,7 @@ class SRGAN():
             return x
 
         # Input low resolution image
-        lr_input = Input(shape=self.shape_lr)
+        lr_input = Input(shape=(None, None, 3))
 
         # Pre-residual
         x_start = Conv2D(64, kernel_size=9, strides=1, padding='same')(lr_input)
