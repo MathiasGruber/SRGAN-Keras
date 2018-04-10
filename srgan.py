@@ -1,9 +1,9 @@
 #! /usr/bin/python
 import os
+import pickle
 import datetime
 
 import numpy as np
-import matplotlib.pyplot as plt
 
 from keras.models import Sequential, Model
 from keras.layers import Input, Activation, Add
@@ -11,8 +11,12 @@ from keras.layers import BatchNormalization, LeakyReLU, Conv2D, Dense
 from keras.layers import UpSampling2D
 from keras.optimizers import Adam
 from keras.applications import VGG19
+from keras.utils import plot_model
+
+from keras.callbacks import TensorBoard, ReduceLROnPlateau
 
 from dataloader import DataLoader
+from util import plot_test_images
 
 
 class SRGAN():
@@ -50,7 +54,24 @@ class SRGAN():
         self.vgg = self.build_vgg(optimizer_vgg)
         self.generator = self.build_generator(optimizer_generator)
         self.discriminator = self.build_discriminator(optimizer_discriminator)
+
+        # Build the combined network
         self.srgan = self.build_srgan(optimizer_gan)
+
+        # Plot models and save their networks
+        plot_model(self.generator, './images/generator.png')
+        plot_model(self.discriminator, './images/discriminator.png')
+        plot_model(self.srgan, './images/srgan.png')
+
+    
+    def save_weights(self, filepath):
+        """Save the generator and discriminator networks"""
+        self.generator.save_weights(os.path.join(filepath, "weights_generator.h5"))
+        self.discriminator.save_weights(os.path.join(filepath, "weights_discriminator.h5"))
+
+
+    def load_weights(self):
+        raise NotImplementedError()
 
 
     def build_vgg(self, optimizer):
@@ -196,7 +217,7 @@ class SRGAN():
         return model
 
 
-    def train(self, epochs, datapath, batch_size=1, test_images=None, test_frequency=50, test_output="."):
+    def train(self, epochs, datapath, batch_size=1, test_images=None, test_frequency=50, test_output=".", weight_frequency=None, weight_path='./data/weights/', log_path='./data/logs/'):
         """Train the SRGAN network
 
         :param int epochs: how many epochs to train the network for
@@ -213,6 +234,12 @@ class SRGAN():
             self.upscaling_factor
         )
 
+        # Callbacks
+        discriminator_tb = TensorBoard(log_path, write_graph=False)
+        discriminator_tb.set_model(self.discriminator)
+        generator_tb = TensorBoard(log_path, write_graph=False)
+        generator_tb.set_model(self.generator)
+
         # Shape of output from discriminator
         disciminator_output_shape = list(self.discriminator.output_shape)
         disciminator_output_shape[0] = batch_size
@@ -224,6 +251,7 @@ class SRGAN():
 
         # Each epoch == "update iteration" as defined in the paper
         start_time = datetime.datetime.now()
+        losses = []
         for epoch in range(epochs):
 
             # Train discriminator
@@ -238,56 +266,30 @@ class SRGAN():
             features_hr = self.vgg.predict(imgs_hr)
             generator_loss = self.srgan.train_on_batch([imgs_lr, imgs_hr], [real, features_hr])
 
+            # Save losses
+            losses.append({'generator': generator_loss, 'discriminator': discriminator_loss})
+
             # Plot the progress
-            print("Epoch {}/{}, elapsed time: {}, generator loss: {}, discriminator loss: {}".format(
+            print("Epoch {}/{} | Time: {}  | Generator: {} | Discriminator: {}".format(
                 epoch, epochs,
                 datetime.datetime.now() - start_time,
-                generator_loss, discriminator_loss
+                ", ".join(["{}={:.3e}".format(k, v) for k, v in zip(self.srgan.metrics_names, generator_loss)]),
+                ", ".join(["{}={:.3e}".format(k, v) for k, v in zip(self.discriminator.metrics_names, discriminator_loss)])
             ))
 
-            # If test images are supplied,
+            # If test images are supplied, show them to the user
             if test_images and epoch % test_frequency == 0:
-                print(">> Outputting sample images")
+                plot_test_images(self, loader, test_images, test_output, epoch)
 
-                # Load the images to perform test on images
-                imgs_hr, imgs_lr = loader.load_batch(batch_size=1, img_paths=test_images, training=False)
+            # Check if we should save the network weights
+            if weight_frequency and epoch % weight_frequency == 0:
 
-                # Create super resolution images
-                imgs_sr = []
-                for img in imgs_lr:
-                    imgs_sr.append(
-                        np.squeeze(
-                            self.generator.predict(
-                                np.expand_dims(img, 0),
-                                batch_size=1
-                            ),
-                            axis=0
-                        )
-                    )
+                # Save the network weights
+                self.save_weights(weight_path)
 
-                # Loop through images
-                for img_hr, img_lr, img_sr, img_path in zip(imgs_hr, imgs_lr, imgs_sr, test_images):
+                # Save the recorded losses
+                pickle.dump(losses, open(os.path.join(weight_path, 'losses.p'), 'wb'))
 
-                    # Get the filename
-                    filename = os.path.basename(img_path).split(".")[0]
-
-                    # Images and titles
-                    images = {
-                        'Low Resolution': img_lr, 'SRGAN': img_sr, 'Original': img_hr
-                    }
-
-                    # Plot the images. Note: rescaling and using squeeze since we are getting batches of size 1                    
-                    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-                    for i, (title, img) in enumerate(images.items()):
-                        axes[i].imshow(0.5 * img + 0.5)
-                        axes[i].set_title(title)
-                        axes[i].axis('off')
-                    plt.suptitle('{} - Epoch: {}'.format(filename, epoch))
-
-                    # Save directory                    
-                    savefile = os.path.join(test_output, "{}-Epoch{}.png".format(filename, epoch))
-                    fig.savefig(savefile)
-                    plt.close()
 
 # Run the SRGAN network
 if __name__ == '__main__':
@@ -298,12 +300,20 @@ if __name__ == '__main__':
 
     # Train the SRGAN
     gan.train(
-        epochs=30000,
-        datapath='./datasets/ILSVRC/Data/DET/train/',
+        epochs=10e5,
+        datapath='D:/Documents/Kaggle/Kaggle-imagenet/input/DET/train/',
         batch_size=1,
         test_images=[
-            './datasets/ILSVRC/Data/DET/test/ILSVRC2012_test_00005401.JPEG'
+            './data/test_wedding.jpg',
+            'D:/Documents/Kaggle/Kaggle-imagenet/input/DET/train/ILSVRC2013_train_extra8/ILSVRC2013_train_00080304.JPEG',
+            'D:/Documents/Kaggle/Kaggle-imagenet/input/DET/train/ILSVRC2013_train_extra8/ILSVRC2013_train_00080698.JPEG',
+            'D:/Documents/Kaggle/Kaggle-imagenet/input/DET/train/ILSVRC2013_train_extra8/ILSVRC2013_train_00083052.JPEG',
+            'D:/Documents/Kaggle/Kaggle-imagenet/input/DET/train/ILSVRC2013_train_extra8/ILSVRC2013_train_00083927.JPEG',
+            'D:/Documents/Kaggle/Kaggle-imagenet/input/DET/train/ILSVRC2013_train_extra8/ILSVRC2013_train_00084024.JPEG',
+            'D:/Documents/Kaggle/Kaggle-imagenet/input/DET/train/ILSVRC2013_train_extra8/ILSVRC2013_train_00084534.JPEG',
+            
         ],
-        test_frequency=100,
-        test_output='./images/'
+        test_frequency=1000,
+        test_output='./images/',
+        weight_frequency=1000
     )
