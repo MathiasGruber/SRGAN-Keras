@@ -23,7 +23,7 @@ class SRGAN():
     """
 
     def __init__(self, height_lr=64, width_lr=64, channels=3, upscaling_factor=4):
-        
+
         # Low-resolution image dimensions
         self.height_lr = height_lr
         self.width_lr = width_lr
@@ -41,10 +41,10 @@ class SRGAN():
         self.shape_hr = (self.height_hr, self.width_hr, self.channels)
 
         # Optimizers used by networks
-        optimizer_vgg = Adam(0.0002, 0.5)
-        optimizer_generator = Adam(0.0002, 0.5)
-        optimizer_discriminator = Adam(0.0002, 0.5)
-        optimizer_gan = Adam(0.0002, 0.5)
+        optimizer_vgg = Adam(0.0001, 0.9)
+        optimizer_generator = Adam(0.0001, 0.9)
+        optimizer_discriminator = Adam(0.0001, 0.9)
+        optimizer_gan = Adam(0.0001, 0.9)
 
         # Build the basic networks
         self.vgg = self.build_vgg(optimizer_vgg)
