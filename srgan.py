@@ -50,7 +50,7 @@ class SRGAN():
         self.vgg = self.build_vgg(optimizer_vgg)
         self.generator = self.build_generator(optimizer_generator)
         self.discriminator = self.build_discriminator(optimizer_discriminator)
-        self.srgan = self.build_srgan(optimizer_gan)  
+        self.srgan = self.build_srgan(optimizer_gan)
 
 
     def build_vgg(self, optimizer):
@@ -72,7 +72,7 @@ class SRGAN():
         model.trainable = False
         model.compile(
             loss='mse',
-            optimizer=optimizer, 
+            optimizer=optimizer,
             metrics=['accuracy']
         )
         return model
@@ -125,7 +125,7 @@ class SRGAN():
             loss='binary_crossentropy',
             optimizer=optimizer
         )
-        return model  
+        return model
 
 
     def build_discriminator(self, optimizer, filters=64):
@@ -166,7 +166,7 @@ class SRGAN():
             optimizer=optimizer,
             metrics=['accuracy']
         )
-        return model        
+        return model
 
 
     def build_srgan(self, optimizer):
@@ -193,12 +193,12 @@ class SRGAN():
             loss_weights=[1e-3, 1],
             optimizer=optimizer
         )
-        return model       
-    
+        return model
+
 
     def train(self, epochs, datapath, batch_size=1, test_images=None, test_frequency=50, test_output="."):
         """Train the SRGAN network
-        
+
         :param int epochs: how many epochs to train the network for
         :param str datapath: path for the image files to use for training
         :param int batch_size: how large mini-batches to use
@@ -226,9 +226,9 @@ class SRGAN():
         for epoch in range(epochs):
 
             # Train discriminator
-            imgs_hr, imgs_lr = loader.load_batch(batch_size)        
+            imgs_hr, imgs_lr = loader.load_batch(batch_size)
             generated_hr = self.generator.predict(imgs_lr)
-            real_loss = self.discriminator.train_on_batch(imgs_hr, real)        
+            real_loss = self.discriminator.train_on_batch(imgs_hr, real)
             fake_loss = self.discriminator.train_on_batch(generated_hr, fake)
             discriminator_loss = 0.5 * np.add(real_loss, fake_loss)
 
@@ -239,12 +239,12 @@ class SRGAN():
 
             # Plot the progress
             print("Epoch {}/{}, elapsed time: {}, generator loss: {}, discriminator loss: {}".format(
-                epoch, epochs, 
+                epoch, epochs,
                 datetime.datetime.now() - start_time,
                 generator_loss, discriminator_loss
             ))
 
-            # If test images are supplied, 
+            # If test images are supplied,
             if test_images and epoch % test_frequency == 0:
                 for img_path in test_images:
 
