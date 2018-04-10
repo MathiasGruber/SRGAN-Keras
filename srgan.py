@@ -293,6 +293,7 @@ class SRGAN():
 if __name__ == '__main__':
 
     # Instantiate the SRGAN object
+    print(">> Creating the SRGAN network")
     gan = SRGAN()
 
     # Train the SRGAN
@@ -303,6 +304,6 @@ if __name__ == '__main__':
         test_images=[
             './datasets/ILSVRC/Data/DET/test/ILSVRC2012_test_00005401.JPEG'
         ],
-        test_frequency=50,
-        test_output='./samples/'
+        test_frequency=100,
+        test_output='./images/'
     )
