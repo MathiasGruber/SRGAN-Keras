@@ -19,6 +19,6 @@ The generator creates a high-resolution (HR) image (4x upscaled) from a correspo
 ## 2. Content & Adversarial Loss
 <img src='images/loss_equations.PNG' width="80%" />
 
-**Losses Overview**: The perceptual loss is a combination of content loss (based on VGG19 features) and adversarial loss. Equations are taken directly from ["original paper"](https://arxiv.org/abs/1609.04802)
+**Losses Overview**: The perceptual loss is a combination of content loss (based on VGG19 features) and adversarial loss. Equations are taken directly from ["original paper"](https://arxiv.org/abs/1609.04802).
 
 ## 3. Using this repository
