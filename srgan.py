@@ -15,8 +15,7 @@ from keras.utils import plot_model
 
 from keras.callbacks import TensorBoard, ReduceLROnPlateau
 
-from dataloader import DataLoader
-from util import plot_test_images
+from util import DataLoader, plot_test_images
 
 
 class SRGAN():
