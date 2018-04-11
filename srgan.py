@@ -234,12 +234,6 @@ class SRGAN():
             self.upscaling_factor
         )
 
-        # Callbacks
-        discriminator_tb = TensorBoard(log_path, write_graph=False)
-        discriminator_tb.set_model(self.discriminator)
-        generator_tb = TensorBoard(log_path, write_graph=False)
-        generator_tb.set_model(self.generator)
-
         # Shape of output from discriminator
         disciminator_output_shape = list(self.discriminator.output_shape)
         disciminator_output_shape[0] = batch_size
