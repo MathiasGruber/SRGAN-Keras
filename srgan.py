@@ -300,7 +300,7 @@ if __name__ == '__main__':
 
     # Train the SRGAN
     gan.train(
-        epochs=10e5,
+        epochs=100000,
         datapath='D:/Documents/Kaggle/Kaggle-imagenet/input/DET/train/',
         batch_size=1,
         test_images=[
