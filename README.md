@@ -22,3 +22,4 @@ The generator creates a high-resolution (HR) image (4x upscaled) from a correspo
 **Losses Overview**: The perceptual loss is a combination of content loss (based on VGG19 features) and adversarial loss. Equations are taken directly from ["original paper"](https://arxiv.org/abs/1609.04802).
 
 ## 3. Using this repository
+Check the example_usage notebook: [example_usage.ipynb](./Example_Usage.ipynb)
