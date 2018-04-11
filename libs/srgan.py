@@ -15,7 +15,7 @@ from keras.utils import plot_model
 
 from keras.callbacks import TensorBoard, ReduceLROnPlateau
 
-from util import DataLoader, plot_test_images
+from .util import DataLoader, plot_test_images
 
 
 class SRGAN():
@@ -65,12 +65,15 @@ class SRGAN():
     
     def save_weights(self, filepath):
         """Save the generator and discriminator networks"""
-        self.generator.save_weights(os.path.join(filepath, "weights_generator.h5"))
-        self.discriminator.save_weights(os.path.join(filepath, "weights_discriminator.h5"))
+        self.generator.save_weights(filepath + "_generator.h5")
+        self.discriminator.save_weights(filepath + "_discriminator.h5")
 
 
-    def load_weights(self):
-        raise NotImplementedError()
+    def load_weights(self, generator_weights=None, discriminator_weights=None):
+        if generator_weights:
+            self.generator.load_weights(generator_weights)
+        if discriminator_weights:
+            self.discriminator.load_weights(discriminator_weights)
 
 
     def build_vgg(self, optimizer):
@@ -216,7 +219,13 @@ class SRGAN():
         return model
 
 
-    def train(self, epochs, datapath, batch_size=1, test_images=None, test_frequency=50, test_output=".", weight_frequency=None, weight_path='./data/weights/', log_path='./data/logs/'):
+    def train(self, epochs, 
+        dataname, datapath,
+        batch_size=1, 
+        test_images=None, test_frequency=50, test_path="./images/samples/", 
+        weight_frequency=None, weight_path='./data/weights/', 
+        print_frequency=1
+    ):
         """Train the SRGAN network
 
         :param int epochs: how many epochs to train the network for
@@ -263,25 +272,26 @@ class SRGAN():
             losses.append({'generator': generator_loss, 'discriminator': discriminator_loss})
 
             # Plot the progress
-            print("Epoch {}/{} | Time: {}  | Generator: {} | Discriminator: {}".format(
-                epoch, epochs,
-                datetime.datetime.now() - start_time,
-                ", ".join(["{}={:.3e}".format(k, v) for k, v in zip(self.srgan.metrics_names, generator_loss)]),
-                ", ".join(["{}={:.3e}".format(k, v) for k, v in zip(self.discriminator.metrics_names, discriminator_loss)])
-            ))
+            if epoch % print_frequency == 0:
+                print("Epoch {}/{} | Time: {}\n>> Generator: {}\n>> Discriminator: {}\n".format(
+                    epoch, epochs,
+                    datetime.datetime.now() - start_time,
+                    ", ".join(["{}={:.3e}".format(k, v) for k, v in zip(self.srgan.metrics_names, generator_loss)]),
+                    ", ".join(["{}={:.3e}".format(k, v) for k, v in zip(self.discriminator.metrics_names, discriminator_loss)])
+                ))
 
             # If test images are supplied, show them to the user
             if test_images and epoch % test_frequency == 0:
-                plot_test_images(self, loader, test_images, test_output, epoch)
+                plot_test_images(self, loader, test_images, test_path, epoch)
 
             # Check if we should save the network weights
             if weight_frequency and epoch % weight_frequency == 0:
 
                 # Save the network weights
-                self.save_weights(weight_path)
+                self.save_weights(os.path.join(weight_path, dataname))
 
                 # Save the recorded losses
-                pickle.dump(losses, open(os.path.join(weight_path, 'losses.p'), 'wb'))
+                pickle.dump(losses, open(os.path.join(weight_path, dataname+'_losses.p'), 'wb'))
 
 
 # Run the SRGAN network
@@ -294,10 +304,11 @@ if __name__ == '__main__':
     # Train the SRGAN
     gan.train(
         epochs=100000,
+        dataname='imagenet',
         datapath='D:/Documents/Kaggle/Kaggle-imagenet/input/DET/train/',
         batch_size=1,
         test_images=[
-            './data/test_wedding.jpg',
+            './data/buket.jpg',
             'D:/Documents/Kaggle/Kaggle-imagenet/input/DET/train/ILSVRC2013_train_extra8/ILSVRC2013_train_00080304.JPEG',
             'D:/Documents/Kaggle/Kaggle-imagenet/input/DET/train/ILSVRC2013_train_extra8/ILSVRC2013_train_00080698.JPEG',
             'D:/Documents/Kaggle/Kaggle-imagenet/input/DET/train/ILSVRC2013_train_extra8/ILSVRC2013_train_00083052.JPEG',
@@ -305,8 +316,10 @@ if __name__ == '__main__':
             'D:/Documents/Kaggle/Kaggle-imagenet/input/DET/train/ILSVRC2013_train_extra8/ILSVRC2013_train_00084024.JPEG',
             'D:/Documents/Kaggle/Kaggle-imagenet/input/DET/train/ILSVRC2013_train_extra8/ILSVRC2013_train_00084534.JPEG',
             
-        ],
+        ],        
         test_frequency=1000,
-        test_output='./images/',
-        weight_frequency=1000
+        test_path='./images/samples/',
+        weight_path='./data/weights/',
+        weight_frequency=1000,
+        print_frequency=10,
     )
