@@ -11,11 +11,10 @@ from keras.layers import BatchNormalization, LeakyReLU, Conv2D, Dense
 from keras.layers import UpSampling2D
 from keras.optimizers import Adam
 from keras.applications import VGG19
-from keras.utils import plot_model
 
 from keras.callbacks import TensorBoard, ReduceLROnPlateau
 
-from .util import DataLoader, plot_test_images
+from util import DataLoader, plot_test_images
 
 
 class SRGAN():
@@ -25,7 +24,7 @@ class SRGAN():
     https://arxiv.org/abs/1609.04802
     """
 
-    def __init__(self, height_lr=64, width_lr=64, channels=3, upscaling_factor=4):
+    def __init__(self, height_lr=64, width_lr=64, channels=3, upscaling_factor=4, gen_lr=1e-4, dis_lr=1e-4, gan_lr=1e-4):
 
         # Low-resolution image dimensions
         self.height_lr = height_lr
@@ -45,9 +44,9 @@ class SRGAN():
 
         # Optimizers used by networks
         optimizer_vgg = Adam(0.0001, 0.9)
-        optimizer_generator = Adam(0.0001, 0.9)
-        optimizer_discriminator = Adam(0.0001, 0.9)
-        optimizer_gan = Adam(0.0001, 0.9)
+        optimizer_generator = Adam(gen_lr, 0.9)
+        optimizer_discriminator = Adam(dis_lr, 0.9)
+        optimizer_gan = Adam(gan_lr, 0.9)
 
         # Build the basic networks
         self.vgg = self.build_vgg(optimizer_vgg)
@@ -56,11 +55,6 @@ class SRGAN():
 
         # Build the combined network
         self.srgan = self.build_srgan(optimizer_gan)
-
-        # Plot models and save their networks
-        plot_model(self.generator, './images/generator.png')
-        plot_model(self.discriminator, './images/discriminator.png')
-        plot_model(self.srgan, './images/srgan.png')
 
     
     def save_weights(self, filepath):
@@ -299,7 +293,11 @@ if __name__ == '__main__':
 
     # Instantiate the SRGAN object
     print(">> Creating the SRGAN network")
-    gan = SRGAN()
+    gan = SRGAN(gen_lr=1e-5)
+
+    # Load previous imagenet weights
+    print(">> Loading old weights")
+    gan.load_weights('../data/weights/imagenet_generator.h5', '../data/weights/imagenet_discriminator.h5')
 
     # Train the SRGAN
     gan.train(
@@ -308,7 +306,7 @@ if __name__ == '__main__':
         datapath='D:/Documents/Kaggle/Kaggle-imagenet/input/DET/train/',
         batch_size=1,
         test_images=[
-            './data/buket.jpg',
+            '../data/buket.jpg',
             'D:/Documents/Kaggle/Kaggle-imagenet/input/DET/train/ILSVRC2013_train_extra8/ILSVRC2013_train_00080304.JPEG',
             'D:/Documents/Kaggle/Kaggle-imagenet/input/DET/train/ILSVRC2013_train_extra8/ILSVRC2013_train_00080698.JPEG',
             'D:/Documents/Kaggle/Kaggle-imagenet/input/DET/train/ILSVRC2013_train_extra8/ILSVRC2013_train_00083052.JPEG',
@@ -318,8 +316,8 @@ if __name__ == '__main__':
             
         ],        
         test_frequency=1000,
-        test_path='./images/samples/',
-        weight_path='./data/weights/',
+        test_path='../images/samples/',
+        weight_path='../data/weights/',
         weight_frequency=1000,
         print_frequency=10,
     )
