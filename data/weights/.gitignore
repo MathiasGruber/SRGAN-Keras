@@ -1,2 +1,2 @@
 [^.]*
-!imagenet_*
+!imagenet_*.h5
