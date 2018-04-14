@@ -59,7 +59,7 @@ class DataLoader():
                 img_lr = imresize(img, lr_shape)
 
             # print(f">> Reading image: {img_path}")
-            # print(f">> Image shapes: {img.shape} {img_hr.shape}, {img_lr.shape}")
+            # print(f">> Image shapes: {img.shape} {img_hr.shape}, {img_lr.shape} - {img_path}")
 
             # Store images
             imgs_hr.append(self.scale_imgs(img_hr))
