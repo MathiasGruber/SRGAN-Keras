@@ -49,9 +49,9 @@ class SRGAN():
         optimizer_gan = Adam(gan_lr, 0.9)
 
         # Build the basic networks
-        self.vgg = self.build_vgg(optimizer_vgg)
-        self.generator = self.build_generator(optimizer_generator)
-        self.discriminator = self.build_discriminator(optimizer_discriminator)
+        self.vgg = self.build_vgg(optimizer_vgg) # model1
+        self.generator = self.build_generator(optimizer_generator) # model2
+        self.discriminator = self.build_discriminator(optimizer_discriminator) # model3
 
         # Build the combined network
         self.srgan = self.build_srgan(optimizer_gan)
@@ -223,9 +223,15 @@ class SRGAN():
         """Train the SRGAN network
 
         :param int epochs: how many epochs to train the network for
+        :param str dataname: name to use for storing model weights etc.
         :param str datapath: path for the image files to use for training
         :param int batch_size: how large mini-batches to use
-        :param callbacks: callbacks to be called during training. Epoch passed as argument
+        :param list test_images: list of image paths to perform testing on
+        :param int test_frequency: how often (in epochs) should testing be performed
+        :param str test_path: where should test results be saved
+        :param int weight_frequency: how often (in epochs) should network weights be saved. None for never
+        :param int weight_path: where should network weights be saved
+        :param int print_frequency: how often (in epochs) to print progress to terminal
         """
 
         # Create data loader
@@ -243,12 +249,15 @@ class SRGAN():
 
         # VALID / FAKE targets for discriminator
         real = np.ones(disciminator_output_shape)
-        fake = np.ones(disciminator_output_shape)
+        fake = np.ones(disciminator_output_shape)        
 
-        # Each epoch == "update iteration" as defined in the paper
-        start_time = datetime.datetime.now()
+        # Each epoch == "update iteration" as defined in the paper        
         losses = []
         for epoch in range(epochs):
+
+            # Start epoch time
+            if epoch % (print_frequency + 1) == 0:
+                start_epoch = datetime.datetime.now()
 
             # Train discriminator
             imgs_hr, imgs_lr = loader.load_batch(batch_size)
@@ -267,9 +276,9 @@ class SRGAN():
 
             # Plot the progress
             if epoch % print_frequency == 0:
-                print("Epoch {}/{} | Time: {}\n>> Generator: {}\n>> Discriminator: {}\n".format(
+                print("Epoch {}/{} | Time: {}s\n>> Generator: {}\n>> Discriminator: {}\n".format(
                     epoch, epochs,
-                    datetime.datetime.now() - start_time,
+                    (datetime.datetime.now() - start_epoch).seconds,
                     ", ".join(["{}={:.3e}".format(k, v) for k, v in zip(self.srgan.metrics_names, generator_loss)]),
                     ", ".join(["{}={:.3e}".format(k, v) for k, v in zip(self.discriminator.metrics_names, discriminator_loss)])
                 ))
@@ -304,7 +313,7 @@ if __name__ == '__main__':
         epochs=100000,
         dataname='imagenet',
         datapath='D:/Documents/Kaggle/Kaggle-imagenet/input/DET/train/',
-        batch_size=1,
+        batch_size=16,
         test_images=[
             '../data/buket.jpg',
             'D:/Documents/Kaggle/Kaggle-imagenet/input/DET/train/ILSVRC2013_train_extra8/ILSVRC2013_train_00080304.JPEG',
