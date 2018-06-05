@@ -102,3 +102,7 @@ ENV/
 
 # Do not track VScode settings
 .vscode/*
+
+# Do not track local files
+datasets/*
+sample-epoch*
