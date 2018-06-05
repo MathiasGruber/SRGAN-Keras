@@ -7,6 +7,14 @@ import matplotlib.pyplot as plt
 
 class DataLoader():
     def __init__(self, datapath, height_hr, width_hr, height_lr, width_lr, scale):
+        """        
+        :param string datapath: filepath to training images
+        :param int height_hr: Height of high-resolution images
+        :param int width_hr: Width of high-resolution images
+        :param int height_hr: Height of low-resolution images
+        :param int width_hr: Width of low-resolution images
+        :param int scale: Upscaling factor
+        """
 
         # Store the datapath
         self.datapath = datapath
@@ -58,6 +66,7 @@ class DataLoader():
                 img_hr = np.array(img)
                 img_lr = imresize(img, lr_shape)
 
+            # For prototyping
             # print(f">> Reading image: {img_path}")
             # print(f">> Image shapes: {img.shape} {img_hr.shape}, {img_lr.shape} - {img_path}")
 
@@ -75,6 +84,13 @@ class DataLoader():
 
 
 def plot_test_images(model, loader, test_images, test_output, epoch):
+    """        
+    :param SRGAN model: The trained SRGAN model
+    :param DataLoader loader: Instance of DataLoader for loading images
+    :param list test_images: List of filepaths for testing images
+    :param string test_output: Directory path for outputting testing images
+    :param int epoch: Identifier for how long the model has been trained
+    """
 
     # Load the images to perform test on images
     imgs_hr, imgs_lr = loader.load_batch(batch_size=1, img_paths=test_images, training=False)

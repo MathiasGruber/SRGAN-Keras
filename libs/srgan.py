@@ -25,6 +25,15 @@ class SRGAN():
     """
 
     def __init__(self, height_lr=64, width_lr=64, channels=3, upscaling_factor=4, gen_lr=1e-4, dis_lr=1e-4, gan_lr=1e-4):
+        """        
+        :param int height_lr: Height of low-resolution images
+        :param int width_lr: Width of low-resolution images
+        :param int channels: Image channels
+        :param int upscaling_factor: Up-scaling factor
+        :param int gen_lr: Learning rate of generator
+        :param int dis_lr: Learning rate of discriminator
+        :param int gan_lr: Learning rate of GAN
+        """
 
         # Low-resolution image dimensions
         self.height_lr = height_lr
@@ -96,6 +105,13 @@ class SRGAN():
 
 
     def build_generator(self, optimizer, residual_blocks=16):
+        """
+        Build the generator network according to description in the paper.
+
+        :param optimizer: Keras optimizer to use for network
+        :param int residual_blocks: How many residual blocks to use
+        :return: the compiled model
+        """
 
         def residual_block(input):
             x = Conv2D(64, kernel_size=3, strides=1, padding='same')(input)
@@ -151,7 +167,6 @@ class SRGAN():
 
         :param optimizer: Keras optimizer to use for network
         :param int filters: How many filters to use in first conv layer
-        :param bool bn: Perform batch normalization for this conv layer
         :return: the compiled model
         """
 
@@ -312,16 +327,10 @@ if __name__ == '__main__':
     gan.train(
         epochs=100000,
         dataname='imagenet',
-        datapath='D:/Documents/Kaggle/Kaggle-imagenet/input/DET/train/',
+        datapath='../data/imagenet/train/',
         batch_size=16,
         test_images=[
-            '../data/buket.jpg',
-            'D:/Documents/Kaggle/Kaggle-imagenet/input/DET/train/ILSVRC2013_train_extra8/ILSVRC2013_train_00080304.JPEG',
-            'D:/Documents/Kaggle/Kaggle-imagenet/input/DET/train/ILSVRC2013_train_extra8/ILSVRC2013_train_00080698.JPEG',
-            'D:/Documents/Kaggle/Kaggle-imagenet/input/DET/train/ILSVRC2013_train_extra8/ILSVRC2013_train_00083052.JPEG',
-            'D:/Documents/Kaggle/Kaggle-imagenet/input/DET/train/ILSVRC2013_train_extra8/ILSVRC2013_train_00083927.JPEG',
-            'D:/Documents/Kaggle/Kaggle-imagenet/input/DET/train/ILSVRC2013_train_extra8/ILSVRC2013_train_00084024.JPEG',
-            'D:/Documents/Kaggle/Kaggle-imagenet/input/DET/train/ILSVRC2013_train_extra8/ILSVRC2013_train_00084534.JPEG',
+            '../data/buket.jpg'
             
         ],        
         test_frequency=1000,
