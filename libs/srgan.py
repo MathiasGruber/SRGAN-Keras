@@ -268,7 +268,7 @@ class SRGAN():
 
         # VALID / FAKE targets for discriminator
         real = np.ones(disciminator_output_shape)
-        fake = np.ones(disciminator_output_shape)        
+        fake = np.zeros(disciminator_output_shape)        
 
         # Each epoch == "update iteration" as defined in the paper        
         losses = []
