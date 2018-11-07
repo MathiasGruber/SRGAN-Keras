@@ -159,7 +159,7 @@ class SRGAN():
         # Create model and compile
         model = Model(inputs=lr_input, outputs=hr_output)
         model.compile(
-            loss='binary_crossentropy',
+            loss='mse',
             optimizer=optimizer
         )
         return model
@@ -198,7 +198,7 @@ class SRGAN():
         # Create model and compile
         model = Model(inputs=img, outputs=x)
         model.compile(
-            loss='mse',
+            loss='binary_crossentropy',
             optimizer=optimizer,
             metrics=['accuracy']
         )
@@ -226,7 +226,7 @@ class SRGAN():
         model = Model(inputs=[img_lr, img_hr], outputs=[generated_check, generated_features])
         model.compile(
             loss=['binary_crossentropy', 'mse'],
-            loss_weights=[1e-3, 1],
+            loss_weights=self.loss_weights,
             optimizer=optimizer
         )
         return model
