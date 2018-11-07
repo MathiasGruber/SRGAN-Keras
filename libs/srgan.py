@@ -14,7 +14,8 @@ from keras.applications import VGG19
 
 from keras.callbacks import TensorBoard, ReduceLROnPlateau
 
-from util import DataLoader, plot_test_images
+from .util import DataLoader, plot_test_images
+
 
 
 class SRGAN():
