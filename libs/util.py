@@ -1,6 +1,6 @@
 import os
-import imageio
 import numpy as np
+from PIL import Image
 from scipy.misc import imresize
 import matplotlib.pyplot as plt
 
@@ -50,8 +50,8 @@ class DataLoader():
         imgs_hr, imgs_lr = [], []
         for img_path in img_paths:            
 
-            # Load image
-            img = imageio.imread(img_path).astype(np.float)            
+            # Load image      
+            img = np.array(Image.open(img_path)).astype(np.float)
 
             # If gray-scale, convert to RGB
             if len(img.shape) == 2:
