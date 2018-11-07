@@ -208,8 +208,7 @@ class SRGAN():
     def build_srgan(self, optimizer):
         """Create the combined SRGAN network"""
 
-        # Input HR and corresponding LR images
-        img_hr = Input(self.shape_hr)
+        # Input LR images
         img_lr = Input(self.shape_lr)
 
         # Create a high resolution image from the low resolution one
@@ -223,7 +222,7 @@ class SRGAN():
         generated_check = self.discriminator(generated_hr)
 
         # Create model and compile
-        model = Model(inputs=[img_lr, img_hr], outputs=[generated_check, generated_features])
+        model = Model(inputs=img_lr, outputs=[generated_check, generated_features])
         model.compile(
             loss=['binary_crossentropy', 'mse'],
             loss_weights=self.loss_weights,
@@ -289,7 +288,7 @@ class SRGAN():
             # Train generator
             imgs_hr, imgs_lr = loader.load_batch(batch_size)
             features_hr = self.vgg.predict(imgs_hr)
-            generator_loss = self.srgan.train_on_batch([imgs_lr, imgs_hr], [real, features_hr])
+            generator_loss = self.srgan.train_on_batch(imgs_lr, [real, features_hr])
 
             # Save losses            
             print_losses['G'].append(generator_loss)
