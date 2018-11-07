@@ -25,7 +25,7 @@ class SRGAN():
     https://arxiv.org/abs/1609.04802
     """
 
-    def __init__(self, height_lr=64, width_lr=64, channels=3, upscaling_factor=4, gen_lr=1e-4, dis_lr=1e-4, gan_lr=1e-4):
+    def __init__(self, height_lr=64, width_lr=64, channels=3, upscaling_factor=4, gen_lr=1e-4, dis_lr=1e-4, gan_lr=1e-4, loss_weights=[1e-3, 1]):
         """        
         :param int height_lr: Height of low-resolution images
         :param int width_lr: Width of low-resolution images
@@ -51,6 +51,9 @@ class SRGAN():
         self.channels = channels
         self.shape_lr = (self.height_lr, self.width_lr, self.channels)
         self.shape_hr = (self.height_hr, self.width_hr, self.channels)
+        
+        # Scaling of losses
+        self.loss_weights = loss_weights
 
         # Optimizers used by networks
         optimizer_vgg = Adam(0.0001, 0.9)
