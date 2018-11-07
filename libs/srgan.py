@@ -272,6 +272,7 @@ class SRGAN():
 
         # Each epoch == "update iteration" as defined in the paper        
         losses = []
+        print_losses = {"G": [], "D": []}
         for epoch in range(epochs):
 
             # Start epoch time
@@ -290,17 +291,22 @@ class SRGAN():
             features_hr = self.vgg.predict(imgs_hr)
             generator_loss = self.srgan.train_on_batch([imgs_lr, imgs_hr], [real, features_hr])
 
-            # Save losses
-            losses.append({'generator': generator_loss, 'discriminator': discriminator_loss})
+            # Save losses            
+            print_losses['G'].append(generator_loss)
+            print_losses['D'].append(discriminator_loss)
 
-            # Plot the progress
+            # Show the progress
             if epoch % print_frequency == 0:
+                g_avg_loss = np.array(print_losses['G']).mean(axis=0)
+                d_avg_loss = np.array(print_losses['D']).mean(axis=0)
+                losses.append({'generator': g_avg_loss, 'discriminator': d_avg_loss})
                 print("Epoch {}/{} | Time: {}s\n>> Generator: {}\n>> Discriminator: {}\n".format(
                     epoch, epochs,
                     (datetime.datetime.now() - start_epoch).seconds,
-                    ", ".join(["{}={:.3e}".format(k, v) for k, v in zip(self.srgan.metrics_names, generator_loss)]),
-                    ", ".join(["{}={:.3e}".format(k, v) for k, v in zip(self.discriminator.metrics_names, discriminator_loss)])
+                    ", ".join(["{}={:.3e}".format(k, v) for k, v in zip(self.srgan.metrics_names, g_avg_loss)]),
+                    ", ".join(["{}={:.3e}".format(k, v) for k, v in zip(self.discriminator.metrics_names, d_avg_loss)])
                 ))
+                print_losses = {"G": [], "D": []}
 
             # If test images are supplied, show them to the user
             if test_images and epoch % test_frequency == 0:
