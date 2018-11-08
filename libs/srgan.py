@@ -25,7 +25,12 @@ class SRGAN():
     https://arxiv.org/abs/1609.04802
     """
 
-    def __init__(self, height_lr=64, width_lr=64, channels=3, upscaling_factor=4, gen_lr=1e-4, dis_lr=1e-4, gan_lr=1e-4, loss_weights=[1e-3, 1]):
+    def __init__(self, 
+        height_lr=64, width_lr=64, channels=3, 
+        upscaling_factor=4, 
+        gen_lr=1e-4, dis_lr=1e-4, gan_lr=1e-4, 
+        loss_weights=[1e-3, 1]
+    ):
         """        
         :param int height_lr: Height of low-resolution images
         :param int width_lr: Width of low-resolution images
@@ -231,11 +236,16 @@ class SRGAN():
         return model
 
 
-    def train(self, epochs, 
+    def train(self, 
+        epochs, 
         dataname, datapath,
         batch_size=1, 
-        test_images=None, test_frequency=50, test_path="./images/samples/", 
-        weight_frequency=None, weight_path='./data/weights/', 
+        test_images=None, 
+        test_frequency=50,
+        test_path="./images/samples/", 
+        weight_frequency=None, 
+        weight_path='./data/weights/', 
+        log_path='./data/logs/',
         print_frequency=1
     ):
         """Train the SRGAN network
@@ -299,11 +309,11 @@ class SRGAN():
                 g_avg_loss = np.array(print_losses['G']).mean(axis=0)
                 d_avg_loss = np.array(print_losses['D']).mean(axis=0)
                 losses.append({'generator': g_avg_loss, 'discriminator': d_avg_loss})
-                print("Epoch {}/{} | Time: {}s\n>> Generator: {}\n>> Discriminator: {}\n".format(
+                print("Epoch {}/{} | Time: {}s\n>> Generator/GAN: {}\n>> Discriminator: {}\n".format(
                     epoch, epochs,
                     (datetime.datetime.now() - start_epoch).seconds,
-                    ", ".join(["{}={:.3e}".format(k, v) for k, v in zip(self.srgan.metrics_names, g_avg_loss)]),
-                    ", ".join(["{}={:.3e}".format(k, v) for k, v in zip(self.discriminator.metrics_names, d_avg_loss)])
+                    ", ".join(["{}={:.3f}".format(k, v) for k, v in zip(self.srgan.metrics_names, g_avg_loss)]),
+                    ", ".join(["{}={:.3f}".format(k, v) for k, v in zip(self.discriminator.metrics_names, d_avg_loss)])
                 ))
                 print_losses = {"G": [], "D": []}
 
