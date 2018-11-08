@@ -99,7 +99,7 @@ class SRGAN():
 
         # Get the vgg network. Extract features from last conv layer
         vgg = VGG19(weights="imagenet")
-        vgg.outputs = [vgg.layers[9].output]
+        vgg.outputs = [vgg.layers[20].output]
 
         # Create model and compile
         model = Model(inputs=img, outputs=vgg(img))
