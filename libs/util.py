@@ -38,6 +38,10 @@ class DataLoader():
     def scale_imgs(self, imgs):
         """Scale images prior to passing to SRGAN"""
         return imgs / 127.5 - 1
+    
+    def unscale_imgs(self, imgs):
+        """Un-Scale images"""
+        return (imgs + 1) * 127.5
 
     def load_batch(self, batch_size=1, img_paths=None, training=True):
         """Loads a batch of images from datapath folder""" 
@@ -95,13 +99,27 @@ def plot_test_images(model, loader, test_images, test_output, epoch):
     # Load the images to perform test on images
     imgs_hr, imgs_lr = loader.load_batch(batch_size=1, img_paths=test_images, training=False)
 
-    # Create super resolution images
+    # Create super resolution and bicubic interpolation images
     imgs_sr = []
-    for img in imgs_lr:
+    imgs_bc = []
+    for i in range(len(test_images)):
+        
+        # Bicubic interpolation
+        pil_img = loader.unscale_imgs(imgs_lr[i]).astype('uint8')
+        pil_img = Image.fromarray(pil_img)
+        hr_shape = (imgs_hr[i].shape[1], imgs_hr[i].shape[0])
+        
+        imgs_bc.append(
+            loader.scale_imgs(
+                np.array(pil_img.resize(hr_shape, resample=Image.BICUBIC))
+            )
+        )
+        
+        # SRGAN prediction
         imgs_sr.append(
             np.squeeze(
                 model.generator.predict(
-                    np.expand_dims(img, 0),
+                    np.expand_dims(imgs_lr[i], 0),
                     batch_size=1
                 ),
                 axis=0
@@ -109,18 +127,21 @@ def plot_test_images(model, loader, test_images, test_output, epoch):
         )
 
     # Loop through images
-    for img_hr, img_lr, img_sr, img_path in zip(imgs_hr, imgs_lr, imgs_sr, test_images):
+    for img_hr, img_lr, img_bc, img_sr, img_path in zip(imgs_hr, imgs_lr, imgs_bc, imgs_sr, test_images):
 
         # Get the filename
         filename = os.path.basename(img_path).split(".")[0]
 
         # Images and titles
         images = {
-            'Low Resolution': img_lr, 'SRGAN': img_sr, 'Original': img_hr
+            'Low Resolution': img_lr, 
+            'Bicubic Interpolation': img_bc, 
+            'SRGAN': img_sr, 
+            'Original': img_hr
         }
 
         # Plot the images. Note: rescaling and using squeeze since we are getting batches of size 1                    
-        fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+        fig, axes = plt.subplots(1, 4, figsize=(15, 5))
         for i, (title, img) in enumerate(images.items()):
             axes[i].imshow(0.5 * img + 0.5)
             axes[i].set_title(title)
