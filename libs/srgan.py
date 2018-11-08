@@ -311,8 +311,8 @@ class SRGAN():
                 print("Epoch {}/{} | Time: {}s\n>> Generator/GAN: {}\n>> Discriminator: {}\n".format(
                     epoch, epochs,
                     (datetime.datetime.now() - start_epoch).seconds,
-                    ", ".join(["{}={:.3f}".format(k, v) for k, v in zip(self.srgan.metrics_names, g_avg_loss)]),
-                    ", ".join(["{}={:.3f}".format(k, v) for k, v in zip(self.discriminator.metrics_names, d_avg_loss)])
+                    ", ".join(["{}={:.4f}".format(k, v) for k, v in zip(self.srgan.metrics_names, g_avg_loss)]),
+                    ", ".join(["{}={:.4f}".format(k, v) for k, v in zip(self.discriminator.metrics_names, d_avg_loss)])
                 ))
                 print_losses = {"G": [], "D": []}
 
