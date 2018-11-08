@@ -17,7 +17,6 @@ from keras.callbacks import TensorBoard, ReduceLROnPlateau
 from .util import DataLoader, plot_test_images
 
 
-
 class SRGAN():
     """
     Implementation of SRGAN as described in the paper:
@@ -90,7 +89,7 @@ class SRGAN():
 
     def build_vgg(self, optimizer):
         """
-        Load pre-trained VGG19 from keras applications
+        Load pre-trained VGG weights from keras applications
         Extract features to be used in loss function from last conv layer, see architecture at:
         https://github.com/keras-team/keras/blob/master/keras/applications/vgg19.py
         """
