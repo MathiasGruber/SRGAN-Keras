@@ -5,12 +5,17 @@ import datetime
 
 import numpy as np
 
+from tensorflow import depth_to_space
 from keras.models import Sequential, Model
 from keras.layers import Input, Activation, Add
-from keras.layers import BatchNormalization, LeakyReLU, Conv2D, Dense
-from keras.layers import UpSampling2D
+from keras.layers import BatchNormalization, LeakyReLU, PReLU, Conv2D, Dense
+from keras.layers import UpSampling2D, Lambda
 from keras.optimizers import Adam
 from keras.applications import VGG19
+
+from keras_contrib.losses import DSSIMObjective
+
+from keras import backend as K
 
 from keras.callbacks import TensorBoard, ReduceLROnPlateau
 
@@ -25,9 +30,9 @@ class SRGAN():
     """
 
     def __init__(self, 
-        height_lr=64, width_lr=64, channels=3, 
+        height_lr=24, width_lr=24, channels=3, 
         upscaling_factor=4, 
-        gen_lr=1e-4, dis_lr=1e-4, gan_lr=1e-4, 
+        gen_lr=1e-4, dis_lr=1e-4, 
         loss_weights=[1e-3, 1]
     ):
         """        
@@ -37,7 +42,6 @@ class SRGAN():
         :param int upscaling_factor: Up-scaling factor
         :param int gen_lr: Learning rate of generator
         :param int dis_lr: Learning rate of discriminator
-        :param int gan_lr: Learning rate of GAN
         """
 
         # Low-resolution image dimensions
@@ -61,17 +65,16 @@ class SRGAN():
 
         # Optimizers used by networks
         optimizer_vgg = Adam(0.0001, 0.9)
-        optimizer_generator = Adam(gen_lr, 0.9)
         optimizer_discriminator = Adam(dis_lr, 0.9)
-        optimizer_gan = Adam(gan_lr, 0.9)
-
+        optimizer_generator = Adam(gen_lr, 0.9)
+        
         # Build the basic networks
-        self.vgg = self.build_vgg(optimizer_vgg) # model1
-        self.generator = self.build_generator(optimizer_generator) # model2
-        self.discriminator = self.build_discriminator(optimizer_discriminator) # model3
+        self.vgg = self.build_vgg(optimizer_vgg)
+        self.generator = self.build_generator(optimizer_generator)
+        self.discriminator = self.build_discriminator(optimizer_discriminator)
 
         # Build the combined network
-        self.srgan = self.build_srgan(optimizer_gan)
+        self.srgan = self.build_srgan(optimizer_generator)
 
     
     def save_weights(self, filepath):
@@ -85,6 +88,31 @@ class SRGAN():
             self.generator.load_weights(generator_weights)
         if discriminator_weights:
             self.discriminator.load_weights(discriminator_weights)
+            
+    def SubpixelConv2D(self, input_shape, scale=2):
+        """
+        Keras layer to do subpixel convolution.
+        NOTE: Tensorflow backend only. Uses tf.depth_to_space
+        Ref:
+            https://github.com/twairball/keras-subpixel-conv/blob/master/subpixel.py
+            
+        :param input_shape: tensor shape, (batch, height, width, channel)
+        :param scale: upsampling scale. Default=4
+        :return:
+        """
+        # upsample using depth_to_space
+        def subpixel_shape(input_shape):
+            dims = [input_shape[0],
+                    None if input_shape[1] is None else input_shape[1] * scale,
+                    None if input_shape[2] is None else input_shape[2] * scale,
+                    int(input_shape[3] / (scale ** 2))]
+            output_shape = tuple(dims)
+            return output_shape
+
+        def subpixel(x):
+            return depth_to_space(x, scale)
+
+        return Lambda(subpixel, output_shape=subpixel_shape)
 
 
     def build_vgg(self, optimizer):
@@ -123,7 +151,8 @@ class SRGAN():
 
         def residual_block(input):
             x = Conv2D(64, kernel_size=3, strides=1, padding='same')(input)
-            x = Activation('relu')(x)
+            #x = Activation('relu')(x)
+            x = PReLU(shared_axes=[1,2])(x)
             x = BatchNormalization(momentum=0.8)(x)
             x = Conv2D(64, kernel_size=3, strides=1, padding='same')(x)
             x = BatchNormalization(momentum=0.8)(x)
@@ -133,7 +162,8 @@ class SRGAN():
         def deconv2d_block(input):
             x = UpSampling2D(size=2)(input)
             x = Conv2D(256, kernel_size=3, strides=1, padding='same')(x)
-            x = Activation('relu')(x)
+            #x = Activation('relu')(x)
+            x = PReLU(shared_axes=[1,2])(x)
             return x
 
         # Input low resolution image
@@ -141,7 +171,8 @@ class SRGAN():
 
         # Pre-residual
         x_start = Conv2D(64, kernel_size=9, strides=1, padding='same')(lr_input)
-        x_start = Activation('relu')(x_start)
+        #x_start = Activation('relu')(x_start)
+        x_start = PReLU(shared_axes=[1,2])(x_start)
 
         # Residual blocks
         r = residual_block(x_start)
@@ -152,13 +183,23 @@ class SRGAN():
         x = Conv2D(64, kernel_size=3, strides=1, padding='same')(r)
         x = BatchNormalization(momentum=0.8)(x)
         x = Add()([x, x_start])
-
-        # Upsampling (if 4; run twice, if 8; run thrice, etc.)
-        for _ in range(int(np.log(self.upscaling_factor) / np.log(2))):
-            x = deconv2d_block(x)
-
+        
+        # Upsampling
+        for _ in range(2):
+            x = Conv2D(256, kernel_size=3, strides=1, padding='same')(x)
+            x = self.SubpixelConv2D(lr_input.shape, 2)(x)
+            x = PReLU(shared_axes=[1,2])(x)
+        
         # Generate high resolution output
-        hr_output = Conv2D(self.channels, kernel_size=9, strides=1, padding='same', activation='tanh')(x)
+        # tanh activation, see: 
+        # https://towardsdatascience.com/gan-ways-to-improve-gan-performance-acf37f9f59b
+        hr_output = Conv2D(
+            self.channels, 
+            kernel_size=9, 
+            strides=1, 
+            padding='same', 
+            activation='tanh'
+        )(x)
 
         # Create model and compile
         model = Model(inputs=lr_input, outputs=hr_output)
@@ -217,15 +258,21 @@ class SRGAN():
 
         # Create a high resolution image from the low resolution one
         generated_hr = self.generator(img_lr)
-        generated_features = self.vgg(generated_hr)
+        generated_features = self.vgg(generated_hr)        
 
         # In the combined model we only train the generator
         self.discriminator.trainable = False
 
         # Determine whether the generator HR images are OK
         generated_check = self.discriminator(generated_hr)
+        
+        # Create sensible names for outputs in logs
+        generated_features = Lambda(lambda x: x, name='Content')(generated_features)
+        generated_check = Lambda(lambda x: x, name='Adversarial')(generated_check)
 
         # Create model and compile
+        # Using binary_crossentropy with reversed label, to get proper loss, see:
+        # https://danieltakeshi.github.io/2017/03/05/understanding-generative-adversarial-networks/
         model = Model(inputs=img_lr, outputs=[generated_check, generated_features])
         model.compile(
             loss=['binary_crossentropy', 'mse'],
@@ -233,18 +280,22 @@ class SRGAN():
             optimizer=optimizer
         )
         return model
-
+    
+    def PSNRLoss(y_true, y_pred):
+        return -10. * np.log10(K.mean(K.square(y_pred - y_true)))
 
     def train(self, 
         epochs, 
         dataname, datapath,
         batch_size=1, 
+        first_epoch=0,
         test_images=None, 
         test_frequency=50,
         test_path="./images/samples/", 
         weight_frequency=None, 
         weight_path='./data/weights/', 
         log_path='./data/logs/',
+        log_name='SRGAN',
         print_frequency=1
     ):
         """Train the SRGAN network
@@ -268,6 +319,34 @@ class SRGAN():
             self.height_lr, self.width_lr,
             self.upscaling_factor
         )
+        
+        # Callback: tensorboard
+        tensorboard = TensorBoard(
+            log_dir=os.path.join(log_path, log_name),
+            histogram_freq=0,
+            batch_size=batch_size,
+            write_graph=False,
+            write_grads=False
+        )
+        tensorboard.set_model(self.srgan)
+        
+        # Callback: learning rate scheduler
+        reduce_lr = ReduceLROnPlateau(
+            monitor='loss', 
+            factor=0.5, patience=500, 
+            verbose=1, 
+            mode='min', min_delta=0.0001,
+            min_lr=1e-6
+        )
+        # reduce_lr.set_model(self.srgan)
+        
+        # Callback: format input value
+        def named_logs(model, logs):
+            """Transform train_on_batch return value to dict expected by on_batch_end callback"""
+            result = {}
+            for l in zip(model.metrics_names, logs):
+                result[l[0]] = l[1]
+            return result
 
         # Shape of output from discriminator
         disciminator_output_shape = list(self.discriminator.output_shape)
@@ -281,7 +360,9 @@ class SRGAN():
         # Each epoch == "update iteration" as defined in the paper        
         losses = []
         print_losses = {"G": [], "D": []}
-        for epoch in range(epochs):
+        start_epoch = datetime.datetime.now()
+        
+        for epoch in range(first_epoch, epochs+first_epoch):
 
             # Start epoch time
             if epoch % (print_frequency + 1) == 0:
@@ -297,7 +378,12 @@ class SRGAN():
             # Train generator
             imgs_hr, imgs_lr = loader.load_batch(batch_size)
             features_hr = self.vgg.predict(imgs_hr)
-            generator_loss = self.srgan.train_on_batch(imgs_lr, [real, features_hr])
+            generator_loss = self.srgan.train_on_batch(imgs_lr, [real, features_hr])            
+            
+            # Callbacks
+            logs = named_logs(self.srgan, generator_loss)
+            tensorboard.on_epoch_end(epoch, logs)
+            # reduce_lr.on_epoch_end(epoch, logs)
 
             # Save losses            
             print_losses['G'].append(generator_loss)
@@ -309,7 +395,7 @@ class SRGAN():
                 d_avg_loss = np.array(print_losses['D']).mean(axis=0)
                 losses.append({'generator': g_avg_loss, 'discriminator': d_avg_loss})
                 print("Epoch {}/{} | Time: {}s\n>> Generator/GAN: {}\n>> Discriminator: {}\n".format(
-                    epoch, epochs,
+                    epoch, epochs+first_epoch,
                     (datetime.datetime.now() - start_epoch).seconds,
                     ", ".join(["{}={:.4f}".format(k, v) for k, v in zip(self.srgan.metrics_names, g_avg_loss)]),
                     ", ".join(["{}={:.4f}".format(k, v) for k, v in zip(self.discriminator.metrics_names, d_avg_loss)])
