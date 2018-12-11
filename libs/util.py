@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 
 
 class DataLoader():
-    def __init__(self, datapath, height_hr, width_hr, height_lr, width_lr, scale):
+    def __init__(self, datapath, height_hr, width_hr, scale):
         """        
         :param string datapath: filepath to training images
         :param int height_hr: Height of high-resolution images
@@ -19,69 +19,91 @@ class DataLoader():
         # Store the datapath
         self.datapath = datapath
         self.height_hr = height_hr
-        self.height_lr = height_lr
+        self.height_lr = int(height_hr / scale)
         self.width_hr = width_hr
-        self.width_lr = width_lr
+        self.width_lr = int(width_hr / scale)
         self.scale = scale
+        self.total_imgs = None
 
         # Get the paths for all the images
         self.img_paths = []
         for dirpath, _, filenames in os.walk(self.datapath):
             for filename in [f for f in filenames if any(filetype in f.lower() for filetype in ['jpeg', 'png', 'jpg'])]:
                 self.img_paths.append(os.path.join(dirpath, filename))
-        print(f">> Found {len(self.img_paths)} images in dataset")
+        self.total_imgs = len(self.img_paths)
+        print(f">> Found {self.total_imgs} images in dataset")
+    
+    def random_crop(self, img, random_crop_size):
+        # Note: image_data_format is 'channel_last'
+        assert img.shape[2] == 3
+        height, width = img.shape[0], img.shape[1]
+        print(height, width)
+        dy, dx = random_crop_size
+        x = np.random.randint(0, width - dx + 1)
+        y = np.random.randint(0, height - dy + 1)
+        return img[y:(y+dy), x:(x+dx), :]
 
-    def get_random_images(self, n_imgs=1):
-        """Get n_imgs random images from the dataset"""
-        return np.random.choice(self.img_paths, size=n_imgs)
-
-    def scale_imgs(self, imgs):
-        """Scale images prior to passing to SRGAN"""
+    def scale_lr_imgs(self, imgs):
+        """Scale low-res images prior to passing to SRGAN"""
+        return imgs / 255
+    
+    def unscale_lr_imgs(self, imgs):
+        """Un-Scale low-res images"""
+        return imgs * 255
+    
+    def scale_hr_imgs(self, imgs):
+        """Scale high-res images prior to passing to SRGAN"""
         return imgs / 127.5 - 1
     
-    def unscale_imgs(self, imgs):
-        """Un-Scale images"""
+    def unscale_hr_imgs(self, imgs):
+        """Un-Scale high-res images"""
         return (imgs + 1) * 127.5
 
     def load_batch(self, batch_size=1, img_paths=None, training=True):
         """Loads a batch of images from datapath folder""" 
 
-        # Pick a random set of images from the datapath if not already set
-        if not img_paths:
-            img_paths = self.get_random_images(batch_size)
-
         # Scale and pre-process images
         imgs_hr, imgs_lr = [], []
-        for img_path in img_paths:            
+        while len(imgs_hr) < batch_size:
+            try: 
+                # Load image   
+                rand = np.random.randint(0, self.total_imgs)
+                img = np.array(Image.open(self.img_paths[rand])).astype(np.float)
 
-            # Load image      
-            img = np.array(Image.open(img_path)).astype(np.float)
+                # If gray-scale, convert to RGB
+                if len(img.shape) == 2:
+                    img = np.stack((img,)*3, -1)
 
-            # If gray-scale, convert to RGB
-            if len(img.shape) == 2:
-                img = np.stack((img,)*3, -1)
-
-            # Resize images appropriately
-            if training:
-                img_hr = imresize(img, (self.height_hr, self.width_hr))
-                img_lr = imresize(img, (self.height_lr, self.width_lr))
-            else:
-                lr_shape = (int(img.shape[0]/self.scale), int(img.shape[1]/self.scale))
+                # For HR, do a random crop as in paper if training
                 img_hr = np.array(img)
-                img_lr = imresize(img, lr_shape)
+                if training:
+                    img_hr = self.random_crop(img_hr, (self.height_hr, self.width_hr))
+                    #img_lr = self.random_crop(img_lr, (self.height_lr, self.width_lr))
 
-            # For prototyping
-            # print(f">> Reading image: {img_path}")
-            # print(f">> Image shapes: {img.shape} {img_hr.shape}, {img_lr.shape} - {img_path}")
+                # For LR, do bicubic downsampling
+                lr_shape = (int(img_hr.shape[0]/self.scale), int(img_hr.shape[1]/self.scale))            
+                img_lr = imresize(img_hr, lr_shape)
 
-            # Store images
-            imgs_hr.append(self.scale_imgs(img_hr))
-            imgs_lr.append(self.scale_imgs(img_lr))
+                # Scale color values
+                img_hr = self.scale_lr_imgs(img_hr)
+                img_lr = self.scale_lr_imgs(img_lr)
 
-        # Scale images
+                # Store images
+                imgs_hr.append(img_hr)
+                imgs_lr.append(img_lr)
+                
+            except:
+                pass
+
+        # Convert to numpy arrays when we are training
         if training:
-            imgs_hr = np.array(imgs_hr)
-            imgs_lr = np.array(imgs_lr)
+            try:
+                imgs_hr = np.array(imgs_hr)
+                imgs_lr = np.array(imgs_lr)
+            except:
+                raise Exception("Something went wrong: LR: {}, HR: {}".format(
+                    [im.shape for im in imgs_lr], [im.shape for im in imgs_hr]
+                ))
 
         # Return image batch
         return imgs_hr, imgs_lr
@@ -141,10 +163,10 @@ def plot_test_images(model, loader, test_images, test_output, epoch):
         }
 
         # Plot the images. Note: rescaling and using squeeze since we are getting batches of size 1                    
-        fig, axes = plt.subplots(1, 4, figsize=(15, 5))
+        fig, axes = plt.subplots(1, 4, figsize=(20, 5))
         for i, (title, img) in enumerate(images.items()):
             axes[i].imshow(0.5 * img + 0.5)
-            axes[i].set_title(title)
+            axes[i].set_title("{} - {}".format(title, img.shape))
             axes[i].axis('off')
         plt.suptitle('{} - Epoch: {}'.format(filename, epoch))
 
