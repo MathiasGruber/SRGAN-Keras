@@ -44,9 +44,6 @@ class SRGAN():
         :param int dis_lr: Learning rate of discriminator
         """
         
-        # Inference or training
-        self.training = training_mode
-
         # Low-resolution image dimensions
         self.height_lr = height_lr
         self.width_lr = width_lr
@@ -71,13 +68,15 @@ class SRGAN():
         optimizer_discriminator = Adam(dis_lr, 0.9)
         optimizer_generator = Adam(gen_lr, 0.9)
         
-        # Build the basic networks
-        self.vgg = self.build_vgg(optimizer_vgg)
+        # Build the generator network
         self.generator = self.build_generator(optimizer_generator)
-        self.discriminator = self.build_discriminator(optimizer_discriminator)
-
-        # Build the combined network
-        self.srgan = self.build_srgan(optimizer_generator)
+        
+        # If training, build rest of GAN network
+        if training_mode:
+            self.vgg = self.build_vgg(optimizer_vgg)
+            self.discriminator = self.build_discriminator(optimizer_discriminator)
+            self.srgan = self.build_srgan(optimizer_generator)
+        
 
     
     def save_weights(self, filepath):
@@ -159,10 +158,10 @@ class SRGAN():
 
         def residual_block(input):
             x = Conv2D(64, kernel_size=3, strides=1, padding='same')(input)
-            x = BatchNormalization(momentum=0.8)(x, training=self.training)
+            x = BatchNormalization(momentum=0.8)(x)
             x = PReLU(shared_axes=[1,2])(x)            
             x = Conv2D(64, kernel_size=3, strides=1, padding='same')(x)
-            x = BatchNormalization(momentum=0.8)(x, training=self.training)
+            x = BatchNormalization(momentum=0.8)(x)
             x = Add()([x, input])
             return x
 
@@ -180,7 +179,7 @@ class SRGAN():
 
         # Post-residual block
         x = Conv2D(64, kernel_size=3, strides=1, padding='same')(r)
-        x = BatchNormalization(momentum=0.8)(x, training=self.training)
+        x = BatchNormalization(momentum=0.8)(x)
         x = Add()([x, x_start])
         
         # Upsampling #1
