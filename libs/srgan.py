@@ -5,21 +5,20 @@ import datetime
 
 import numpy as np
 
-from tensorflow import depth_to_space
+#from tensorflow import depth_to_space, add
+import tensorflow as tf
 from keras.models import Sequential, Model
 from keras.layers import Input, Activation, Add
 from keras.layers import BatchNormalization, LeakyReLU, PReLU, Conv2D, Dense
 from keras.layers import UpSampling2D, Lambda
 from keras.optimizers import Adam
 from keras.applications import VGG19
-
-from keras_contrib.losses import DSSIMObjective
-
+from keras.applications.vgg19 import preprocess_input
+from keras.utils.data_utils import OrderedEnqueuer
 from keras import backend as K
+from keras.callbacks import TensorBoard, ModelCheckpoint, LambdaCallback
 
-from keras.callbacks import TensorBoard, ReduceLROnPlateau
-
-from .util import DataLoader, plot_test_images
+from libs.util import DataLoader, plot_test_images
 
 
 class SRGAN():
@@ -30,10 +29,11 @@ class SRGAN():
     """
 
     def __init__(self, 
-        height_lr=24, width_lr=24, channels=3, 
+        height_lr=24, width_lr=24, channels=3,
         upscaling_factor=4, 
         gen_lr=1e-4, dis_lr=1e-4, 
-        loss_weights=[1e-3, 1]
+        loss_weights=[1e-3, 0.006], # VGG scaled with 1/12.75 as in paper
+        training_mode=True
     ):
         """        
         :param int height_lr: Height of low-resolution images
@@ -43,6 +43,9 @@ class SRGAN():
         :param int gen_lr: Learning rate of generator
         :param int dis_lr: Learning rate of discriminator
         """
+        
+        # Inference or training
+        self.training = training_mode
 
         # Low-resolution image dimensions
         self.height_lr = height_lr
@@ -83,24 +86,21 @@ class SRGAN():
         self.discriminator.save_weights(filepath + "_discriminator.h5")
 
 
-    def load_weights(self, generator_weights=None, discriminator_weights=None):
+    def load_weights(self, generator_weights=None, discriminator_weights=None, **kwargs):
         if generator_weights:
-            self.generator.load_weights(generator_weights)
+            self.generator.load_weights(generator_weights, **kwargs)
         if discriminator_weights:
-            self.discriminator.load_weights(discriminator_weights)
+            self.discriminator.load_weights(discriminator_weights, **kwargs)
             
-    def SubpixelConv2D(self, input_shape, scale=2):
+    def SubpixelConv2D(self, scale=2):
         """
         Keras layer to do subpixel convolution.
         NOTE: Tensorflow backend only. Uses tf.depth_to_space
-        Ref:
-            https://github.com/twairball/keras-subpixel-conv/blob/master/subpixel.py
-            
-        :param input_shape: tensor shape, (batch, height, width, channel)
-        :param scale: upsampling scale. Default=4
+        
+        :param scale: upsampling scale compared to input_shape. Default=2
         :return:
         """
-        # upsample using depth_to_space
+
         def subpixel_shape(input_shape):
             dims = [input_shape[0],
                     None if input_shape[1] is None else input_shape[1] * scale,
@@ -110,7 +110,7 @@ class SRGAN():
             return output_shape
 
         def subpixel(x):
-            return depth_to_space(x, scale)
+            return tf.depth_to_space(x, scale)
 
         return Lambda(subpixel, output_shape=subpixel_shape)
 
@@ -138,6 +138,14 @@ class SRGAN():
             metrics=['accuracy']
         )
         return model
+    
+    
+    def preprocess_vgg(self, x):
+        """Take a HR image [-1, 1], convert to [0, 255], then to input for VGG network"""
+        if isinstance(x, np.ndarray):
+            return preprocess_input((x+1)*127.5)
+        else:            
+            return Lambda(lambda x: preprocess_input(tf.add(x, 1) * 127.5))(x)     
 
 
     def build_generator(self, optimizer, residual_blocks=16):
@@ -151,19 +159,11 @@ class SRGAN():
 
         def residual_block(input):
             x = Conv2D(64, kernel_size=3, strides=1, padding='same')(input)
-            #x = Activation('relu')(x)
-            x = PReLU(shared_axes=[1,2])(x)
-            x = BatchNormalization(momentum=0.8)(x)
+            x = BatchNormalization(momentum=0.8)(x, training=self.training)
+            x = PReLU(shared_axes=[1,2])(x)            
             x = Conv2D(64, kernel_size=3, strides=1, padding='same')(x)
-            x = BatchNormalization(momentum=0.8)(x)
+            x = BatchNormalization(momentum=0.8)(x, training=self.training)
             x = Add()([x, input])
-            return x
-
-        def deconv2d_block(input):
-            x = UpSampling2D(size=2)(input)
-            x = Conv2D(256, kernel_size=3, strides=1, padding='same')(x)
-            #x = Activation('relu')(x)
-            x = PReLU(shared_axes=[1,2])(x)
             return x
 
         # Input low resolution image
@@ -171,7 +171,6 @@ class SRGAN():
 
         # Pre-residual
         x_start = Conv2D(64, kernel_size=9, strides=1, padding='same')(lr_input)
-        #x_start = Activation('relu')(x_start)
         x_start = PReLU(shared_axes=[1,2])(x_start)
 
         # Residual blocks
@@ -181,14 +180,18 @@ class SRGAN():
 
         # Post-residual block
         x = Conv2D(64, kernel_size=3, strides=1, padding='same')(r)
-        x = BatchNormalization(momentum=0.8)(x)
+        x = BatchNormalization(momentum=0.8)(x, training=self.training)
         x = Add()([x, x_start])
         
-        # Upsampling
-        for _ in range(2):
-            x = Conv2D(256, kernel_size=3, strides=1, padding='same')(x)
-            x = self.SubpixelConv2D(lr_input.shape, 2)(x)
-            x = PReLU(shared_axes=[1,2])(x)
+        # Upsampling #1
+        x = Conv2D(256, kernel_size=3, strides=1, padding='same')(x)
+        x = self.SubpixelConv2D(2)(x)
+        x = PReLU(shared_axes=[1,2])(x)
+        
+        # Upsampling #2
+        x = Conv2D(256, kernel_size=3, strides=1, padding='same')(x)
+        x = self.SubpixelConv2D(2)(x)
+        x = PReLU(shared_axes=[1,2])(x)
         
         # Generate high resolution output
         # tanh activation, see: 
@@ -258,7 +261,9 @@ class SRGAN():
 
         # Create a high resolution image from the low resolution one
         generated_hr = self.generator(img_lr)
-        generated_features = self.vgg(generated_hr)        
+        generated_features = self.vgg(
+            self.preprocess_vgg(generated_hr)
+        )
 
         # In the combined model we only train the generator
         self.discriminator.trainable = False
@@ -283,62 +288,140 @@ class SRGAN():
     
     def PSNRLoss(y_true, y_pred):
         return -10. * np.log10(K.mean(K.square(y_pred - y_true)))
+    
+    def train_generator(self,
+        epochs, batch_size,
+        workers,
+        dataname, 
+        datapath_train,
+        datapath_test=None,
+        steps_per_epoch=1000,
+        steps_per_validation=1000,
+        log_weight_path='./data/weights/', 
+        log_tensorboard_path='./data/logs/',
+        log_tensorboard_name='SRResNet',
+        log_tensorboard_update_freq=10000,
+        log_test_images=None,
+        log_test_path="./images/samples/"
+    ):
+        """Trains the generator part of the network with MSE loss"""        
 
-    def train(self, 
-        epochs, 
-        dataname, datapath,
-        batch_size=1, 
+        # Create data loaders
+        train_loader = DataLoader(
+            datapath_train, batch_size,
+            self.height_hr, self.width_hr,
+            self.upscaling_factor
+        )
+        test_loader = None
+        if datapath_test is not None:
+            test_loader = DataLoader(
+                datapath_test, batch_size,
+                self.height_hr, self.width_hr,
+                self.upscaling_factor
+            )
+        
+        # Callback: tensorboard
+        callbacks = []
+        tensorboard = TensorBoard(
+            log_dir=os.path.join(log_tensorboard_path, log_tensorboard_name),
+            histogram_freq=0,
+            batch_size=batch_size,
+            write_graph=False,
+            write_grads=False,
+            update_freq=log_tensorboard_update_freq
+        )
+        callbacks.append(tensorboard)
+        
+        # Callback: save weights after each epoch
+        modelcheckpoint = ModelCheckpoint(
+            os.path.join(log_weight_path, dataname), 
+            monitor='val_loss', 
+            save_best_only=True, 
+            save_weights_only=True
+        )
+        callbacks.append(modelcheckpoint)
+        
+        # Callback: test images plotting
+        if log_test_images is not None:
+            testplotting = LambdaCallback(
+                on_epoch_end=lambda epoch, logs: plot_test_images(
+                    self, 
+                    train_loader, 
+                    log_test_images, 
+                    log_test_path, 
+                    epoch, 
+                    name='SRResNet'
+                )
+            )
+            callbacks.append(testplotting)
+                            
+        # Fit the model
+        self.generator.fit_generator(
+            train_loader,
+            steps_per_epoch=steps_per_epoch,
+            epochs=epochs,
+            validation_data=test_loader,
+            validation_steps=steps_per_validation,
+            callbacks=callbacks,
+            use_multiprocessing=workers>1,
+            workers=workers
+        )
+
+    def train_srgan(self, 
+        epochs, batch_size, 
+        dataname, 
+        datapath_train,
+        workers=4, max_queue_size=10,
         first_epoch=0,
-        test_images=None, 
-        test_frequency=50,
-        test_path="./images/samples/", 
-        weight_frequency=None, 
-        weight_path='./data/weights/', 
-        log_path='./data/logs/',
-        log_name='SRGAN',
-        print_frequency=1
+        print_frequency=1,
+        log_weight_frequency=None, 
+        log_weight_path='./data/weights/', 
+        log_tensorboard_path='./data/logs/',
+        log_tensorboard_name='SRGAN',
+        log_test_images=None, 
+        log_test_frequency=50,
+        log_test_path="./images/samples/",         
     ):
         """Train the SRGAN network
 
         :param int epochs: how many epochs to train the network for
         :param str dataname: name to use for storing model weights etc.
         :param str datapath: path for the image files to use for training
-        :param int batch_size: how large mini-batches to use
-        :param list test_images: list of image paths to perform testing on
-        :param int test_frequency: how often (in epochs) should testing be performed
-        :param str test_path: where should test results be saved
-        :param int weight_frequency: how often (in epochs) should network weights be saved. None for never
-        :param int weight_path: where should network weights be saved
         :param int print_frequency: how often (in epochs) to print progress to terminal
+        :param int log_weight_frequency: how often (in epochs) should network weights be saved. None for never
+        :param int log_weight_path: where should network weights be saved
+        :param list log_test_images: list of image paths to perform testing on
+        :param int log_test_frequency: how often (in epochs) should testing be performed
+        :param str log_test_path: where should test results be saved
+        :param str log_tensorboard_path: where should tensorflow logs be sent
+        :param str log_tensorboard_name: what folder should tf logs be saved under        
         """
 
-        # Create data loader
+        # Create train data loader
         loader = DataLoader(
-            datapath,
+            datapath_train, batch_size,
             self.height_hr, self.width_hr,
-            self.height_lr, self.width_lr,
             self.upscaling_factor
         )
         
+        # Use several workers on CPU for preparing batches
+        enqueuer = OrderedEnqueuer(
+            loader,
+            use_multiprocessing=True,
+            shuffle=True
+        )
+        enqueuer.start(workers=workers, max_queue_size=max_queue_size)
+        output_generator = enqueuer.get()
+        
         # Callback: tensorboard
         tensorboard = TensorBoard(
-            log_dir=os.path.join(log_path, log_name),
+            log_dir=os.path.join(log_tensorboard_path, log_tensorboard_name),
             histogram_freq=0,
             batch_size=batch_size,
             write_graph=False,
             write_grads=False
         )
         tensorboard.set_model(self.srgan)
-        
-        # Callback: learning rate scheduler
-        reduce_lr = ReduceLROnPlateau(
-            monitor='loss', 
-            factor=0.5, patience=500, 
-            verbose=1, 
-            mode='min', min_delta=0.0001,
-            min_lr=1e-6
-        )
-        # reduce_lr.set_model(self.srgan)
         
         # Callback: format input value
         def named_logs(model, logs):
@@ -362,28 +445,35 @@ class SRGAN():
         print_losses = {"G": [], "D": []}
         start_epoch = datetime.datetime.now()
         
-        for epoch in range(first_epoch, epochs+first_epoch):
+        # Random images to go through
+        idxs = np.random.randint(0, len(loader), epochs)        
+        
+        # Loop through epochs / iterations
+        for epoch in range(first_epoch, int(epochs)+first_epoch):
 
             # Start epoch time
             if epoch % (print_frequency + 1) == 0:
                 start_epoch = datetime.datetime.now()
+                
+            # If test images are supplied, show them to the user
+            if log_test_images and epoch % log_test_frequency == 0:
+                plot_test_images(self, loader, log_test_images, log_test_path, epoch)
 
-            # Train discriminator
-            imgs_hr, imgs_lr = loader.load_batch(batch_size)
+            # Train discriminator   
+            imgs_lr, imgs_hr = next(output_generator)
             generated_hr = self.generator.predict(imgs_lr)
             real_loss = self.discriminator.train_on_batch(imgs_hr, real)
             fake_loss = self.discriminator.train_on_batch(generated_hr, fake)
             discriminator_loss = 0.5 * np.add(real_loss, fake_loss)
 
             # Train generator
-            imgs_hr, imgs_lr = loader.load_batch(batch_size)
-            features_hr = self.vgg.predict(imgs_hr)
+            imgs_lr, imgs_hr = next(output_generator)
+            features_hr = self.vgg.predict(self.preprocess_vgg(imgs_hr))
             generator_loss = self.srgan.train_on_batch(imgs_lr, [real, features_hr])            
-            
+
             # Callbacks
             logs = named_logs(self.srgan, generator_loss)
             tensorboard.on_epoch_end(epoch, logs)
-            # reduce_lr.on_epoch_end(epoch, logs)
 
             # Save losses            
             print_losses['G'].append(generator_loss)
@@ -402,18 +492,14 @@ class SRGAN():
                 ))
                 print_losses = {"G": [], "D": []}
 
-            # If test images are supplied, show them to the user
-            if test_images and epoch % test_frequency == 0:
-                plot_test_images(self, loader, test_images, test_path, epoch)
-
             # Check if we should save the network weights
-            if weight_frequency and epoch % weight_frequency == 0:
+            if log_weight_frequency and epoch % log_weight_frequency == 0:
 
                 # Save the network weights
-                self.save_weights(os.path.join(weight_path, dataname))
+                self.save_weights(os.path.join(log_weight_path, dataname+str(epoch)))
 
                 # Save the recorded losses
-                pickle.dump(losses, open(os.path.join(weight_path, dataname+'_losses.p'), 'wb'))
+                pickle.dump(losses, open(os.path.join(log_weight_path, dataname+'_losses.p'), 'wb'))
 
 
 # Run the SRGAN network
@@ -432,7 +518,6 @@ if __name__ == '__main__':
         epochs=100000,
         dataname='imagenet',
         datapath='../data/imagenet/train/',
-        batch_size=16,
         test_images=[
             '../data/buket.jpg'
             
