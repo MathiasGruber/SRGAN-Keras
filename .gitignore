@@ -106,3 +106,4 @@ ENV/
 # Do not track local files
 datasets/*
 sample-epoch*
+data/weights/SR*
