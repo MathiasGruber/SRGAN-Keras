@@ -3,7 +3,11 @@ import gc
 import numpy as np
 from PIL import Image
 from keras.utils import Sequence
-import matplotlib.pyplot as plt
+
+try:
+    import matplotlib.pyplot as plt
+except:
+    pass
 
 
 class DataLoader(Sequence):
@@ -150,66 +154,68 @@ def plot_test_images(model, loader, test_images, test_output, epoch, name='SRGAN
     :param int epoch: Identifier for how long the model has been trained
     """
 
-    # Load the images to perform test on images
-    imgs_lr, imgs_hr = loader.load_batch(img_paths=test_images, training=False)
-            
-    # Create super resolution and bicubic interpolation images
-    imgs_sr = []
-    imgs_bc = []
-    for i in range(len(test_images)):
+    try:
+        # Load the images to perform test on images
+        imgs_lr, imgs_hr = loader.load_batch(img_paths=test_images, training=False)
 
-        # Bicubic interpolation
-        pil_img = loader.unscale_lr_imgs(imgs_lr[i]).astype('uint8')
-        pil_img = Image.fromarray(pil_img)        
-        hr_shape = (imgs_hr[i].shape[1], imgs_hr[i].shape[0])
-        
-        imgs_bc.append(
-            loader.scale_lr_imgs(
-                np.array(pil_img.resize(hr_shape, resample=Image.BICUBIC))
+        # Create super resolution and bicubic interpolation images
+        imgs_sr = []
+        imgs_bc = []
+        for i in range(len(test_images)):
+
+            # Bicubic interpolation
+            pil_img = loader.unscale_lr_imgs(imgs_lr[i]).astype('uint8')
+            pil_img = Image.fromarray(pil_img)        
+            hr_shape = (imgs_hr[i].shape[1], imgs_hr[i].shape[0])
+
+            imgs_bc.append(
+                loader.scale_lr_imgs(
+                    np.array(pil_img.resize(hr_shape, resample=Image.BICUBIC))
+                )
             )
-        )
-        
-        # SRGAN prediction
-        imgs_sr.append(
-            np.squeeze(
-                model.generator.predict(
-                    np.expand_dims(imgs_lr[i], 0),
-                    batch_size=1
-                ),
-                axis=0
+
+            # SRGAN prediction
+            imgs_sr.append(
+                np.squeeze(
+                    model.generator.predict(
+                        np.expand_dims(imgs_lr[i], 0),
+                        batch_size=1
+                    ),
+                    axis=0
+                )
             )
-        )
-        
-    # Unscale colors values
-    imgs_lr = [loader.unscale_lr_imgs(img).astype(np.uint8) for img in imgs_lr]
-    imgs_hr = [loader.unscale_hr_imgs(img).astype(np.uint8) for img in imgs_hr]
-    imgs_sr = [loader.unscale_hr_imgs(img).astype(np.uint8) for img in imgs_sr]
-    
-    # Loop through images
-    for img_hr, img_lr, img_bc, img_sr, img_path in zip(imgs_hr, imgs_lr, imgs_bc, imgs_sr, test_images):
-        
-        # Get the filename
-        filename = os.path.basename(img_path).split(".")[0]
 
-        # Images and titles
-        images = {
-            'Low Resolution': img_lr, 
-            'Bicubic Interpolation': img_bc, 
-            name: img_sr, 
-            'Original': img_hr
-        }
-        
-        # Plot the images. Note: rescaling and using squeeze since we are getting batches of size 1                    
-        fig, axes = plt.subplots(1, 4, figsize=(40, 10))
-        for i, (title, img) in enumerate(images.items()):
-            axes[i].imshow(img)
-            axes[i].set_title("{} - {}".format(title, img.shape))
-            axes[i].axis('off')
-        plt.suptitle('{} - Epoch: {}'.format(filename, epoch))
+        # Unscale colors values
+        imgs_lr = [loader.unscale_lr_imgs(img).astype(np.uint8) for img in imgs_lr]
+        imgs_hr = [loader.unscale_hr_imgs(img).astype(np.uint8) for img in imgs_hr]
+        imgs_sr = [loader.unscale_hr_imgs(img).astype(np.uint8) for img in imgs_sr]
 
-        # Save directory                    
-        savefile = os.path.join(test_output, "{}-Epoch{}.png".format(filename, epoch))
-        fig.savefig(savefile)
-        plt.close()
-        gc.collect()
+        # Loop through images
+        for img_hr, img_lr, img_bc, img_sr, img_path in zip(imgs_hr, imgs_lr, imgs_bc, imgs_sr, test_images):
 
+            # Get the filename
+            filename = os.path.basename(img_path).split(".")[0]
+
+            # Images and titles
+            images = {
+                'Low Resolution': img_lr, 
+                'Bicubic Interpolation': img_bc, 
+                name: img_sr, 
+                'Original': img_hr
+            }
+
+            # Plot the images. Note: rescaling and using squeeze since we are getting batches of size 1                    
+            fig, axes = plt.subplots(1, 4, figsize=(40, 10))
+            for i, (title, img) in enumerate(images.items()):
+                axes[i].imshow(img)
+                axes[i].set_title("{} - {}".format(title, img.shape))
+                axes[i].axis('off')
+            plt.suptitle('{} - Epoch: {}'.format(filename, epoch))
+
+            # Save directory                    
+            savefile = os.path.join(test_output, "{}-Epoch{}.png".format(filename, epoch))
+            fig.savefig(savefile)
+            plt.close()
+            gc.collect()
+    except Exception as e:
+        print(">> Could not perform printing. Maybe matplotlib is not installed.")
