@@ -2,6 +2,7 @@ import os
 import gc
 import numpy as np
 from PIL import Image
+from random import choice
 from keras.utils import Sequence
 
 try:
@@ -30,6 +31,9 @@ class DataLoader(Sequence):
         self.width_lr = int(width_hr / scale)
         self.scale = scale
         self.total_imgs = None
+        
+        # Options for resizing
+        self.options = [Image.NEAREST, Image.BILINEAR, Image.BICUBIC, Image.LANCZOS]
         
         # Check data source
         self.img_paths = []
@@ -70,7 +74,7 @@ class DataLoader(Sequence):
     
     @staticmethod
     def load_img(path):
-        return np.array(Image.open(path)).astype(np.float)
+        return np.array(Image.open(path).convert('RGB')).astype(np.float)
     
     def __len__(self):
         return int(self.total_imgs / float(self.batch_size))
@@ -78,9 +82,9 @@ class DataLoader(Sequence):
     def __getitem__(self, idx):
         return self.load_batch(idx=idx)        
 
-    def load_batch(self, idx=0, img_paths=None, training=True):
+    def load_batch(self, idx=0, img_paths=None, training=True, bicubic=False):
         """Loads a batch of images from datapath folder""" 
-        
+
         # Starting index to look in
         cur_idx = 0
         if not img_paths:
@@ -117,9 +121,10 @@ class DataLoader(Sequence):
                     img_hr = self.random_crop(img_hr, (self.height_hr, self.width_hr))
 
                 # For LR, do bicubic downsampling
+                method = Image.BICUBIC if bicubic else choice(self.options)
                 lr_shape = (int(img_hr.shape[1]/self.scale), int(img_hr.shape[0]/self.scale))           
                 img_lr = Image.fromarray(img_hr.astype(np.uint8))
-                img_lr = np.array(img_lr.resize(lr_shape, Image.BICUBIC))
+                img_lr = np.array(img_lr.resize(lr_shape, method))
 
                 # Scale color values
                 img_hr = self.scale_hr_imgs(img_hr)
@@ -145,18 +150,22 @@ class DataLoader(Sequence):
         return imgs_lr, imgs_hr
 
 
-def plot_test_images(model, loader, test_images, test_output, epoch, name='SRGAN'):
+def plot_test_images(model, loader, datapath_test, test_output, epoch, name='SRGAN'):
     """        
     :param SRGAN model: The trained SRGAN model
     :param DataLoader loader: Instance of DataLoader for loading images
-    :param list test_images: List of filepaths for testing images
+    :param str datapath_test: path to folder with testing images
     :param string test_output: Directory path for outputting testing images
     :param int epoch: Identifier for how long the model has been trained
     """
 
     try:
+        
+        # Get the location of test images
+        test_images = [os.path.join(datapath_test, f) for f in os.listdir(datapath_test) if any(filetype in f.lower() for filetype in ['jpeg', 'png', 'jpg'])]
+        
         # Load the images to perform test on images
-        imgs_lr, imgs_hr = loader.load_batch(img_paths=test_images, training=False)
+        imgs_lr, imgs_hr = loader.load_batch(img_paths=test_images, training=False, bicubic=True)
 
         # Create super resolution and bicubic interpolation images
         imgs_sr = []
@@ -204,7 +213,7 @@ def plot_test_images(model, loader, test_images, test_output, epoch, name='SRGAN
                 'Original': img_hr
             }
 
-            # Plot the images. Note: rescaling and using squeeze since we are getting batches of size 1                    
+        # Plot the images. Note: rescaling and using squeeze since we are getting batches of size 1                    
             fig, axes = plt.subplots(1, 4, figsize=(40, 10))
             for i, (title, img) in enumerate(images.items()):
                 axes[i].imshow(img)
