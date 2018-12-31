@@ -81,8 +81,8 @@ class SRGAN():
     
     def save_weights(self, filepath):
         """Save the generator and discriminator networks"""
-        self.generator.save_weights(filepath + "_generator.h5")
-        self.discriminator.save_weights(filepath + "_discriminator.h5")
+        self.generator.save_weights("{}_generator_{}X.h5".format(filepath, self.upscaling_factor))
+        self.discriminator.save_weights("{}_discriminator_{}X.h5".format(filepath, self.upscaling_factor))
 
 
     def load_weights(self, generator_weights=None, discriminator_weights=None, **kwargs):
@@ -188,9 +188,10 @@ class SRGAN():
         x = PReLU(shared_axes=[1,2])(x)
         
         # Upsampling #2
-        x = Conv2D(256, kernel_size=3, strides=1, padding='same')(x)
-        x = self.SubpixelConv2D(2)(x)
-        x = PReLU(shared_axes=[1,2])(x)
+        if self.upscaling_factor > 2:
+            x = Conv2D(256, kernel_size=3, strides=1, padding='same')(x)
+            x = self.SubpixelConv2D(2)(x)
+            x = PReLU(shared_axes=[1,2])(x)
         
         # Generate high resolution output
         # tanh activation, see: 
@@ -293,14 +294,14 @@ class SRGAN():
         workers,
         dataname, 
         datapath_train,
+        datapath_val=None,
         datapath_test=None,
         steps_per_epoch=1000,
         steps_per_validation=1000,
         log_weight_path='./data/weights/', 
         log_tensorboard_path='./data/logs/',
         log_tensorboard_name='SRResNet',
-        log_tensorboard_update_freq=10000,
-        log_test_images=None,
+        log_tensorboard_update_freq=10000,        
         log_test_path="./images/samples/"
     ):
         """Trains the generator part of the network with MSE loss"""        
@@ -312,9 +313,9 @@ class SRGAN():
             self.upscaling_factor
         )
         test_loader = None
-        if datapath_test is not None:
+        if datapath_val is not None:
             test_loader = DataLoader(
-                datapath_test, batch_size,
+                datapath_val, batch_size,
                 self.height_hr, self.width_hr,
                 self.upscaling_factor
             )
@@ -341,12 +342,12 @@ class SRGAN():
         callbacks.append(modelcheckpoint)
         
         # Callback: test images plotting
-        if log_test_images is not None:
+        if datapath_test is not None:
             testplotting = LambdaCallback(
                 on_epoch_end=lambda epoch, logs: plot_test_images(
                     self, 
                     train_loader, 
-                    log_test_images, 
+                    datapath_test, 
                     log_test_path, 
                     epoch, 
                     name='SRResNet'
@@ -370,14 +371,14 @@ class SRGAN():
         epochs, batch_size, 
         dataname, 
         datapath_train,
+        datapath_test=None, 
         workers=4, max_queue_size=10,
         first_epoch=0,
         print_frequency=1,
         log_weight_frequency=None, 
         log_weight_path='./data/weights/', 
         log_tensorboard_path='./data/logs/',
-        log_tensorboard_name='SRGAN',
-        log_test_images=None, 
+        log_tensorboard_name='SRGAN',        
         log_test_frequency=50,
         log_test_path="./images/samples/",         
     ):
@@ -385,11 +386,11 @@ class SRGAN():
 
         :param int epochs: how many epochs to train the network for
         :param str dataname: name to use for storing model weights etc.
-        :param str datapath: path for the image files to use for training
+        :param str datapath_train: path for the image files to use for training
+        :param str datapath_test: path for the image files to use for testing / plotting
         :param int print_frequency: how often (in epochs) to print progress to terminal
         :param int log_weight_frequency: how often (in epochs) should network weights be saved. None for never
-        :param int log_weight_path: where should network weights be saved
-        :param list log_test_images: list of image paths to perform testing on
+        :param int log_weight_path: where should network weights be saved        
         :param int log_test_frequency: how often (in epochs) should testing be performed
         :param str log_test_path: where should test results be saved
         :param str log_tensorboard_path: where should tensorflow logs be sent
@@ -440,7 +441,6 @@ class SRGAN():
         fake = np.zeros(disciminator_output_shape)        
 
         # Each epoch == "update iteration" as defined in the paper        
-        losses = []
         print_losses = {"G": [], "D": []}
         start_epoch = datetime.datetime.now()
         
@@ -455,8 +455,8 @@ class SRGAN():
                 start_epoch = datetime.datetime.now()
                 
             # If test images are supplied, show them to the user
-            if log_test_images and epoch % log_test_frequency == 0:
-                plot_test_images(self, loader, log_test_images, log_test_path, epoch)
+            if datapath_test and epoch % log_test_frequency == 0:
+                plot_test_images(self, loader, datapath_test, log_test_path, epoch)
 
             # Train discriminator   
             imgs_lr, imgs_hr = next(output_generator)
@@ -466,7 +466,7 @@ class SRGAN():
             discriminator_loss = 0.5 * np.add(real_loss, fake_loss)
 
             # Train generator
-            imgs_lr, imgs_hr = next(output_generator)
+            # imgs_lr, imgs_hr = next(output_generator)
             features_hr = self.vgg.predict(self.preprocess_vgg(imgs_hr))
             generator_loss = self.srgan.train_on_batch(imgs_lr, [real, features_hr])            
 
@@ -482,7 +482,6 @@ class SRGAN():
             if epoch % print_frequency == 0:
                 g_avg_loss = np.array(print_losses['G']).mean(axis=0)
                 d_avg_loss = np.array(print_losses['D']).mean(axis=0)
-                losses.append({'generator': g_avg_loss, 'discriminator': d_avg_loss})
                 print("Epoch {}/{} | Time: {}s\n>> Generator/GAN: {}\n>> Discriminator: {}\n".format(
                     epoch, epochs+first_epoch,
                     (datetime.datetime.now() - start_epoch).seconds,
@@ -495,10 +494,7 @@ class SRGAN():
             if log_weight_frequency and epoch % log_weight_frequency == 0:
 
                 # Save the network weights
-                self.save_weights(os.path.join(log_weight_path, dataname+str(epoch)))
-
-                # Save the recorded losses
-                pickle.dump(losses, open(os.path.join(log_weight_path, dataname+'_losses.p'), 'wb'))
+                self.save_weights(os.path.join(log_weight_path, dataname))
 
 
 # Run the SRGAN network
