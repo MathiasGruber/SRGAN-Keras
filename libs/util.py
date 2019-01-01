@@ -56,7 +56,7 @@ class DataLoader(Sequence):
     @staticmethod
     def scale_lr_imgs(imgs):
         """Scale low-res images prior to passing to SRGAN"""
-        return imgs / 255
+        return imgs / 255.
     
     @staticmethod
     def unscale_lr_imgs(imgs):
@@ -71,11 +71,14 @@ class DataLoader(Sequence):
     @staticmethod
     def unscale_hr_imgs(imgs):
         """Un-Scale high-res images"""
-        return (imgs + 1) * 127.5
+        return (imgs + 1.) * 127.5
     
     @staticmethod
     def load_img(path):
-        return np.array(Image.open(path).convert('RGB')).astype(np.float)
+        img = Image.open(path)
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+        return np.array(img)
     
     def __len__(self):
         return int(self.total_imgs / float(self.batch_size))
@@ -106,18 +109,11 @@ class DataLoader(Sequence):
             
             try: 
                 # Load image
-                img = None
+                img_hr = None
                 if img_paths:
-                    img = self.load_img(img_paths[cur_idx])
+                    img_hr = self.load_img(img_paths[cur_idx])
                 else:
-                    img = self.load_img(self.img_paths[cur_idx])
-
-                # If gray-scale, convert to RGB
-                if len(img.shape) == 2:
-                    img = np.stack((img,)*3, -1)
-
-                # For HR, do a random crop as in paper if training
-                img_hr = np.array(img)
+                    img_hr = self.load_img(self.img_paths[cur_idx])
 
                 # Create HR images to go through
                 img_crops = []
@@ -166,7 +162,6 @@ class DataLoader(Sequence):
             imgs_lr = np.array(imgs_lr)
 
         # Return image batch
-        gc.collect()
         return imgs_lr, imgs_hr
 
 
