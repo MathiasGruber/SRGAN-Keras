@@ -208,7 +208,8 @@ class SRGAN():
         model = Model(inputs=lr_input, outputs=hr_output)
         model.compile(
             loss='mse',
-            optimizer=optimizer
+            optimizer=optimizer,
+            metrics=['mse', self.PSNR]
         )
         return model
 
@@ -286,18 +287,27 @@ class SRGAN():
         )
         return model
     
-    def PSNRLoss(y_true, y_pred):
-        return -10. * np.log10(K.mean(K.square(y_pred - y_true)))
+    def PSNR(self, y_true, y_pred):
+        """
+        PSNR is Peek Signal to Noise Ratio, see https://en.wikipedia.org/wiki/Peak_signal-to-noise_ratio
+
+        The equation is:
+        PSNR = 20 * log10(MAX_I) - 10 * log10(MSE)
+        
+        Since input is scaled from -1 to 1, MAX_I = 1, and thus 20 * log10(1) = 0. Only the last part of the equation is therefore neccesary.
+        """
+        return -10.0 * K.log(K.mean(K.square(y_pred - y_true))) / K.log(10.0) 
     
     def train_generator(self,
         epochs, batch_size,
         workers,
         dataname, 
         datapath_train,
-        datapath_val=None,
+        datapath_validation=None,
         datapath_test=None,
         steps_per_epoch=1000,
         steps_per_validation=1000,
+        crops_per_image=2,
         log_weight_path='./data/weights/', 
         log_tensorboard_path='./data/logs/',
         log_tensorboard_name='SRResNet',
@@ -310,14 +320,16 @@ class SRGAN():
         train_loader = DataLoader(
             datapath_train, batch_size,
             self.height_hr, self.width_hr,
-            self.upscaling_factor
+            self.upscaling_factor,
+            crops_per_image
         )
         test_loader = None
-        if datapath_val is not None:
+        if datapath_validation is not None:
             test_loader = DataLoader(
-                datapath_val, batch_size,
+                datapath_validation, batch_size,
                 self.height_hr, self.width_hr,
-                self.upscaling_factor
+                self.upscaling_factor,
+                crops_per_image
             )
         
         # Callback: tensorboard
@@ -371,15 +383,18 @@ class SRGAN():
         epochs, batch_size, 
         dataname, 
         datapath_train,
+        datapath_validation=None, 
+        steps_per_validation=1000,
         datapath_test=None, 
         workers=4, max_queue_size=10,
         first_epoch=0,
         print_frequency=1,
+        crops_per_image=2,
         log_weight_frequency=None, 
         log_weight_path='./data/weights/', 
         log_tensorboard_path='./data/logs/',
         log_tensorboard_name='SRGAN',        
-        log_test_frequency=50,
+        log_test_frequency=500,
         log_test_path="./images/samples/",         
     ):
         """Train the SRGAN network
@@ -388,10 +403,10 @@ class SRGAN():
         :param str dataname: name to use for storing model weights etc.
         :param str datapath_train: path for the image files to use for training
         :param str datapath_test: path for the image files to use for testing / plotting
-        :param int print_frequency: how often (in epochs) to print progress to terminal
+        :param int print_frequency: how often (in epochs) to print progress to terminal. Warning: will run validation inference!
         :param int log_weight_frequency: how often (in epochs) should network weights be saved. None for never
         :param int log_weight_path: where should network weights be saved        
-        :param int log_test_frequency: how often (in epochs) should testing be performed
+        :param int log_test_frequency: how often (in epochs) should testing & validation be performed
         :param str log_test_path: where should test results be saved
         :param str log_tensorboard_path: where should tensorflow logs be sent
         :param str log_tensorboard_name: what folder should tf logs be saved under        
@@ -401,8 +416,18 @@ class SRGAN():
         loader = DataLoader(
             datapath_train, batch_size,
             self.height_hr, self.width_hr,
-            self.upscaling_factor
+            self.upscaling_factor,
+            crops_per_image
         )
+
+        # Validation data loader
+        if datapath_validation is not None:
+            validation_loader = DataLoader(
+                datapath_validation, batch_size,
+                self.height_hr, self.width_hr,
+                self.upscaling_factor,
+                crops_per_image
+            )
         
         # Use several workers on CPU for preparing batches
         enqueuer = OrderedEnqueuer(
@@ -452,11 +477,7 @@ class SRGAN():
 
             # Start epoch time
             if epoch % (print_frequency + 1) == 0:
-                start_epoch = datetime.datetime.now()
-                
-            # If test images are supplied, show them to the user
-            if datapath_test and epoch % log_test_frequency == 0:
-                plot_test_images(self, loader, datapath_test, log_test_path, epoch)
+                start_epoch = datetime.datetime.now()            
 
             # Train discriminator   
             imgs_lr, imgs_hr = next(output_generator)
@@ -466,7 +487,6 @@ class SRGAN():
             discriminator_loss = 0.5 * np.add(real_loss, fake_loss)
 
             # Train generator
-            # imgs_lr, imgs_hr = next(output_generator)
             features_hr = self.vgg.predict(self.preprocess_vgg(imgs_hr))
             generator_loss = self.srgan.train_on_batch(imgs_lr, [real, features_hr])            
 
@@ -482,13 +502,29 @@ class SRGAN():
             if epoch % print_frequency == 0:
                 g_avg_loss = np.array(print_losses['G']).mean(axis=0)
                 d_avg_loss = np.array(print_losses['D']).mean(axis=0)
-                print("Epoch {}/{} | Time: {}s\n>> Generator/GAN: {}\n>> Discriminator: {}\n".format(
+                print("\nEpoch {}/{} | Time: {}s\n>> Generator/GAN: {}\n>> Discriminator: {}".format(
                     epoch, epochs+first_epoch,
                     (datetime.datetime.now() - start_epoch).seconds,
                     ", ".join(["{}={:.4f}".format(k, v) for k, v in zip(self.srgan.metrics_names, g_avg_loss)]),
                     ", ".join(["{}={:.4f}".format(k, v) for k, v in zip(self.discriminator.metrics_names, d_avg_loss)])
                 ))
                 print_losses = {"G": [], "D": []}
+
+                # Run validation inference if specified
+                if datapath_validation:
+                    validation_losses = self.generator.evaluate_generator(
+                        validation_loader,
+                        steps=steps_per_validation,
+                        use_multiprocessing=workers>1,
+                        workers=workers
+                    )
+                    print(">> Validation Losses: {}".format(
+                        ", ".join(["{}={:.4f}".format(k, v) for k, v in zip(self.generator.metrics_names, validation_losses)])
+                    ))                
+
+            # If test images are supplied, run model on them and save to log_test_path
+            if datapath_test and epoch % log_test_frequency == 0:
+                plot_test_images(self, loader, datapath_test, log_test_path, epoch)
 
             # Check if we should save the network weights
             if log_weight_frequency and epoch % log_weight_frequency == 0:
