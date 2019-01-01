@@ -1,11 +1,14 @@
 #! /usr/bin/python
 import os
+import sys
 import pickle
 import datetime
 
 import numpy as np
 
-#from tensorflow import depth_to_space, add
+# Import keras + tensorflow without the "Using XX Backend" message
+stderr = sys.stderr
+sys.stderr = open(os.devnull, 'w')
 import tensorflow as tf
 from keras.models import Sequential, Model
 from keras.layers import Input, Activation, Add
@@ -17,6 +20,7 @@ from keras.applications.vgg19 import preprocess_input
 from keras.utils.data_utils import OrderedEnqueuer
 from keras import backend as K
 from keras.callbacks import TensorBoard, ModelCheckpoint, LambdaCallback
+sys.stderr = stderr
 
 from libs.util import DataLoader, plot_test_images
 
