@@ -12,7 +12,7 @@ except:
 
 
 class DataLoader(Sequence):
-    def __init__(self, datapath, batch_size, height_hr, width_hr, scale):
+    def __init__(self, datapath, batch_size, height_hr, width_hr, scale, crops_per_image):
         """        
         :param string datapath: filepath to training images
         :param int height_hr: Height of high-resolution images
@@ -30,6 +30,7 @@ class DataLoader(Sequence):
         self.width_hr = width_hr
         self.width_lr = int(width_hr / scale)
         self.scale = scale
+        self.crops_per_image = crops_per_image
         self.total_imgs = None
         
         # Options for resizing
@@ -117,22 +118,41 @@ class DataLoader(Sequence):
 
                 # For HR, do a random crop as in paper if training
                 img_hr = np.array(img)
+
+                # Create HR images to go through
+                img_crops = []
                 if training:
-                    img_hr = self.random_crop(img_hr, (self.height_hr, self.width_hr))
+                    for i in range(self.crops_per_image):
+                        #print(idx, cur_idx, "Loading crop: ", i)
+                        img_crops.append(self.random_crop(img_hr, (self.height_hr, self.width_hr)))
+                else:
+                    img_crops = [img_hr]
+ 
+                # Downscale the HR images and save
+                for img_hr in img_crops:
 
-                # For LR, do bicubic downsampling
-                method = Image.BICUBIC if bicubic else choice(self.options)
-                lr_shape = (int(img_hr.shape[1]/self.scale), int(img_hr.shape[0]/self.scale))           
-                img_lr = Image.fromarray(img_hr.astype(np.uint8))
-                img_lr = np.array(img_lr.resize(lr_shape, method))
+                    # TODO: Refactor this so it does not occur multiple times
+                    if img_paths is None:
+                        if cur_idx >= self.total_imgs:
+                            cur_idx = 0
+                        if len(imgs_hr) >= self.batch_size:
+                            break
+                    if img_paths is not None and len(imgs_hr) == len(img_paths):
+                        break   
 
-                # Scale color values
-                img_hr = self.scale_hr_imgs(img_hr)
-                img_lr = self.scale_lr_imgs(img_lr)
+                    # For LR, do bicubic downsampling
+                    method = Image.BICUBIC if bicubic else choice(self.options)
+                    lr_shape = (int(img_hr.shape[1]/self.scale), int(img_hr.shape[0]/self.scale))           
+                    img_lr = Image.fromarray(img_hr.astype(np.uint8))
+                    img_lr = np.array(img_lr.resize(lr_shape, method))
 
-                # Store images
-                imgs_hr.append(img_hr)
-                imgs_lr.append(img_lr)
+                    # Scale color values
+                    img_hr = self.scale_hr_imgs(img_hr)
+                    img_lr = self.scale_lr_imgs(img_lr)
+
+                    # Store images
+                    imgs_hr.append(img_hr)
+                    imgs_lr.append(img_lr)
                 
             except Exception as e:
                 pass
