@@ -58,6 +58,12 @@ def parse_args():
         type=int, default=16,
         help='What batch-size should we use'
     )
+
+    parser.add_argument(
+        '-crops_per_image', '--crops_per_image',
+        type=int, default=2,
+        help='Increase in order to reduce random reads on disk (in case of slower SDDs or HDDs)'
+    )
             
     parser.add_argument(
         '-test_path', '--test_path',
@@ -91,22 +97,23 @@ if __name__ == '__main__':
         "batch_size": args.batch_size, 
         "workers": args.workers,
         "datapath_train": args.train,
+        "datapath_validation": args.validation,
         "datapath_test":args.test,
+        "steps_per_validation": 5000,
         "log_weight_path": args.weight_path, 
         "log_tensorboard_path": args.log_path,        
-        "log_test_path": args.test_path
+        "log_test_path": args.test_path,
+        "crops_per_image": args.crops_per_image
     }
-
+    
     # Create the SRGAN model
-    gan = SRGAN(
+    """gan = SRGAN(
         upscaling_factor=args.scale
     )
     gan.train_generator(
         epochs=10,
-        dataname='SRResNet_'+args.dataname,
-        datapath_val=args.validation,
-        steps_per_epoch=100000,
-        steps_per_validation=1000,
+        dataname='SRResNet_'+args.dataname,        
+        steps_per_epoch=100000,        
         log_tensorboard_name='SRResNet_'+args.dataname,
         log_tensorboard_update_freq=1000,
         **common
@@ -116,13 +123,13 @@ if __name__ == '__main__':
     gan.train_srgan(
         epochs=100000,
         dataname='SRGAN_'+args.dataname,
-        print_frequency=500,    
+        print_frequency=10000,    
         log_weight_frequency=5000,
         log_tensorboard_name='SRGAN_'+args.dataname,
         log_test_frequency=10000,
         first_epoch=1000000,
         **common
-    )
+    )"""
         
     # Fine-tune GAN
     gan = SRGAN(
@@ -130,17 +137,17 @@ if __name__ == '__main__':
         upscaling_factor=args.scale
     )
     gan.load_weights(
-        os.path.join(args.weight_path, 'SRGAN_'+args.dataname+'_generator.h5'), 
-        os.path.join(args.weight_path, 'SRGAN_'+args.dataname+'_discriminator.h5')
+        os.path.join(args.weight_path, 'SRGAN_'+args.dataname+'_generator_'+str(args.scale)+'X.h5'), 
+        os.path.join(args.weight_path, 'SRGAN_'+args.dataname+'_discriminator_'+str(args.scale)+'X.h5')
     )
     gan.train_srgan(
         epochs=200000,
         dataname='SRGAN_'+args.dataname,
-        print_frequency=500,    
+        print_frequency=10000,    
         log_weight_frequency=5000,
         log_tensorboard_name='SRGAN_'+args.dataname,
         log_test_frequency=10000,
-        first_epoch=0,
+        first_epoch=1100000,
         **common
     )
         
