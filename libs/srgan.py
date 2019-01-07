@@ -53,8 +53,8 @@ class SRGAN():
         self.width_lr = width_lr
 
         # High-resolution image dimensions
-        if upscaling_factor % 2 != 0:
-            raise ValueError('Upscaling factor must be a multiple of 2; i.e. 2, 4, 8, etc.')
+        if upscaling_factor not in [2, 4, 8]:
+            raise ValueError('Upscaling factor must be either 2, 4, or 8. You chose {}'.format(upscaling_factor))
         self.upscaling_factor = upscaling_factor
         self.height_hr = int(self.height_lr * self.upscaling_factor)
         self.width_hr = int(self.width_lr * self.upscaling_factor)
@@ -63,23 +63,26 @@ class SRGAN():
         self.channels = channels
         self.shape_lr = (self.height_lr, self.width_lr, self.channels)
         self.shape_hr = (self.height_hr, self.width_hr, self.channels)
+
+        # Learning rates
+        self.gen_lr = gen_lr
+        self.dis_lr = dis_lr
         
         # Scaling of losses
         self.loss_weights = loss_weights
-
-        # Optimizers used by networks
-        optimizer_vgg = Adam(0.0001, 0.9)
-        optimizer_discriminator = Adam(dis_lr, 0.9)
-        optimizer_generator = Adam(gen_lr, 0.9)
         
-        # Build the generator network
-        self.generator = self.build_generator(optimizer_generator)
+        # Build & compile the generator network
+        self.generator = self.build_generator()
+        self.compile_generator(self.generator)
         
         # If training, build rest of GAN network
         if training_mode:
-            self.vgg = self.build_vgg(optimizer_vgg)
-            self.discriminator = self.build_discriminator(optimizer_discriminator)
-            self.srgan = self.build_srgan(optimizer_generator)
+            self.vgg = self.build_vgg()
+            self.compile_vgg(self.vgg)
+            self.discriminator = self.build_discriminator()
+            self.compile_discriminator(self.discriminator)
+            self.srgan = self.build_srgan()
+            self.compile_srgan(self.srgan)
         
 
     
@@ -95,7 +98,7 @@ class SRGAN():
         if discriminator_weights:
             self.discriminator.load_weights(discriminator_weights, **kwargs)
             
-    def SubpixelConv2D(self, scale=2):
+    def SubpixelConv2D(self, name, scale=2):
         """
         Keras layer to do subpixel convolution.
         NOTE: Tensorflow backend only. Uses tf.depth_to_space
@@ -115,10 +118,10 @@ class SRGAN():
         def subpixel(x):
             return tf.depth_to_space(x, scale)
 
-        return Lambda(subpixel, output_shape=subpixel_shape)
+        return Lambda(subpixel, output_shape=subpixel_shape, name=name)
 
 
-    def build_vgg(self, optimizer):
+    def build_vgg(self):
         """
         Load pre-trained VGG weights from keras applications
         Extract features to be used in loss function from last conv layer, see architecture at:
@@ -135,13 +138,15 @@ class SRGAN():
         # Create model and compile
         model = Model(inputs=img, outputs=vgg(img))
         model.trainable = False
-        model.compile(
-            loss='mse',
-            optimizer=optimizer,
-            metrics=['accuracy']
-        )
         return model
     
+    def compile_vgg(self, model):
+        """Compile the generator with appropriate optimizer"""
+        model.compile(
+            loss='mse',
+            optimizer=Adam(0.0001, 0.9),
+            metrics=['accuracy']
+        )
     
     def preprocess_vgg(self, x):
         """Take a HR image [-1, 1], convert to [0, 255], then to input for VGG network"""
@@ -151,7 +156,7 @@ class SRGAN():
             return Lambda(lambda x: preprocess_input(tf.add(x, 1) * 127.5))(x)     
 
 
-    def build_generator(self, optimizer, residual_blocks=16):
+    def build_generator(self, residual_blocks=16):
         """
         Build the generator network according to description in the paper.
 
@@ -167,6 +172,12 @@ class SRGAN():
             x = Conv2D(64, kernel_size=3, strides=1, padding='same')(x)
             x = BatchNormalization(momentum=0.8)(x)
             x = Add()([x, input])
+            return x
+
+        def upsample(x, number):
+            x = Conv2D(256, kernel_size=3, strides=1, padding='same', name='upSampleConv2d_'+str(number))(x)
+            x = self.SubpixelConv2D('upSampleSubPixel_'+str(number), 2)(x)
+            x = PReLU(shared_axes=[1,2], name='upSamplePReLU_'+str(number))(x)
             return x
 
         # Input low resolution image
@@ -186,16 +197,12 @@ class SRGAN():
         x = BatchNormalization(momentum=0.8)(x)
         x = Add()([x, x_start])
         
-        # Upsampling #1
-        x = Conv2D(256, kernel_size=3, strides=1, padding='same')(x)
-        x = self.SubpixelConv2D(2)(x)
-        x = PReLU(shared_axes=[1,2])(x)
-        
-        # Upsampling #2
+        # Upsampling depending on factor
+        x = upsample(x, 1)
         if self.upscaling_factor > 2:
-            x = Conv2D(256, kernel_size=3, strides=1, padding='same')(x)
-            x = self.SubpixelConv2D(2)(x)
-            x = PReLU(shared_axes=[1,2])(x)
+            x = upsample(x, 2)
+        if self.upscaling_factor > 4:
+            x = upsample(x, 3)
         
         # Generate high resolution output
         # tanh activation, see: 
@@ -209,16 +216,18 @@ class SRGAN():
         )(x)
 
         # Create model and compile
-        model = Model(inputs=lr_input, outputs=hr_output)
-        model.compile(
-            loss='mse',
-            optimizer=optimizer,
-            metrics=['mse', self.PSNR]
-        )
+        model = Model(inputs=lr_input, outputs=hr_output)        
         return model
 
+    def compile_generator(self, model):
+        """Compile the generator with appropriate optimizer"""
+        model.compile(
+            loss='mse',
+            optimizer=Adam(self.gen_lr, 0.9),
+            metrics=['mse', self.PSNR]
+        )
 
-    def build_discriminator(self, optimizer, filters=64):
+    def build_discriminator(self, filters=64):
         """
         Build the discriminator network according to description in the paper.
 
@@ -250,15 +259,17 @@ class SRGAN():
 
         # Create model and compile
         model = Model(inputs=img, outputs=x)
-        model.compile(
-            loss='binary_crossentropy',
-            optimizer=optimizer,
-            metrics=['accuracy']
-        )
         return model
 
+    def compile_discriminator(self, model):
+        """Compile the generator with appropriate optimizer"""
+        model.compile(
+            loss='binary_crossentropy',
+            optimizer=Adam(self.dis_lr, 0.9),
+            metrics=['accuracy']
+        )
 
-    def build_srgan(self, optimizer):
+    def build_srgan(self):
         """Create the combined SRGAN network"""
 
         # Input LR images
@@ -283,13 +294,16 @@ class SRGAN():
         # Create model and compile
         # Using binary_crossentropy with reversed label, to get proper loss, see:
         # https://danieltakeshi.github.io/2017/03/05/understanding-generative-adversarial-networks/
-        model = Model(inputs=img_lr, outputs=[generated_check, generated_features])
+        model = Model(inputs=img_lr, outputs=[generated_check, generated_features])        
+        return model
+
+    def compile_srgan(self, model):
+        """Compile the GAN with appropriate optimizer"""
         model.compile(
             loss=['binary_crossentropy', 'mse'],
             loss_weights=self.loss_weights,
-            optimizer=optimizer
+            optimizer=Adam(self.gen_lr, 0.9)
         )
-        return model
     
     def PSNR(self, y_true, y_pred):
         """
@@ -315,7 +329,7 @@ class SRGAN():
         log_weight_path='./data/weights/', 
         log_tensorboard_path='./data/logs/',
         log_tensorboard_name='SRResNet',
-        log_tensorboard_update_freq=10000,        
+        log_tensorboard_update_freq=10000,
         log_test_path="./images/samples/"
     ):
         """Trains the generator part of the network with MSE loss"""        
@@ -338,19 +352,22 @@ class SRGAN():
         
         # Callback: tensorboard
         callbacks = []
-        tensorboard = TensorBoard(
-            log_dir=os.path.join(log_tensorboard_path, log_tensorboard_name),
-            histogram_freq=0,
-            batch_size=batch_size,
-            write_graph=False,
-            write_grads=False,
-            update_freq=log_tensorboard_update_freq
-        )
-        callbacks.append(tensorboard)
+        if log_tensorboard_path:
+            tensorboard = TensorBoard(
+                log_dir=os.path.join(log_tensorboard_path, log_tensorboard_name),
+                histogram_freq=0,
+                batch_size=batch_size,
+                write_graph=False,
+                write_grads=False,
+                update_freq=log_tensorboard_update_freq
+            )
+            callbacks.append(tensorboard)
+        else:
+            print(">> Not logging to tensorboard since no log_tensorboard_path is set")
         
         # Callback: save weights after each epoch
         modelcheckpoint = ModelCheckpoint(
-            os.path.join(log_weight_path, dataname), 
+            os.path.join(log_weight_path, dataname + '_{}X'.format(self.upscaling_factor)), 
             monitor='val_loss', 
             save_best_only=True, 
             save_weights_only=True
@@ -397,7 +414,8 @@ class SRGAN():
         log_weight_frequency=None, 
         log_weight_path='./data/weights/', 
         log_tensorboard_path='./data/logs/',
-        log_tensorboard_name='SRGAN',        
+        log_tensorboard_name='SRGAN',
+        log_tensorboard_update_freq=10000,
         log_test_frequency=500,
         log_test_path="./images/samples/",         
     ):
@@ -443,14 +461,18 @@ class SRGAN():
         output_generator = enqueuer.get()
         
         # Callback: tensorboard
-        tensorboard = TensorBoard(
-            log_dir=os.path.join(log_tensorboard_path, log_tensorboard_name),
-            histogram_freq=0,
-            batch_size=batch_size,
-            write_graph=False,
-            write_grads=False
-        )
-        tensorboard.set_model(self.srgan)
+        if log_tensorboard_path:
+            tensorboard = TensorBoard(
+                log_dir=os.path.join(log_tensorboard_path, log_tensorboard_name),
+                histogram_freq=0,
+                batch_size=batch_size,
+                write_graph=False,
+                write_grads=False,
+                update_freq=log_tensorboard_update_freq
+            )
+            tensorboard.set_model(self.srgan)
+        else:
+            print(">> Not logging to tensorboard since no log_tensorboard_path is set")
         
         # Callback: format input value
         def named_logs(model, logs):
