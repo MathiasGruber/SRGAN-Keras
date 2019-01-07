@@ -19,7 +19,14 @@ from libs.util import plot_test_images, DataLoader
 
 # Sample call
 """
-python train.py --train C:/Documents/Kaggle/Kaggle-imagenet/input/DET/train --validation C:/Documents/Kaggle/Kaggle-imagenet/input/DET/test --scale 2
+# Train 2X SRGAN
+python train.py --train C:/Documents/Kaggle/Kaggle-imagenet/input/DET/train --validation C:/Documents/Kaggle/Kaggle-imagenet/input/DET/test --scale 2 --test_path images/samples_2X
+
+# Train the 4X SRGAN
+python train.py --train C:/Documents/Kaggle/Kaggle-imagenet/input/DET/train --validation C:/Documents/Kaggle/Kaggle-imagenet/input/DET/test --scale 4 --test_path images/samples_4X --scaleFrom 2
+
+# Train the 8X SRGAN
+python train.py --train C:/Documents/Kaggle/Kaggle-imagenet/input/DET/train --validation C:/Documents/Kaggle/Kaggle-imagenet/input/DET/test --scale 8 --test_path images/samples_8X --scaleFrom 4
 """
 
 def parse_args():
