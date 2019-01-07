@@ -1,4 +1,6 @@
 import os
+import sys
+import gc
 import numpy as np
 from argparse import ArgumentParser
 
@@ -61,7 +63,7 @@ def parse_args():
         
     parser.add_argument(
         '-workers', '--workers',
-        type=int, default=6,
+        type=int, default=4,
         help='How many workers to user for pre-processing'
     )
         
@@ -114,8 +116,9 @@ if __name__ == '__main__':
         "steps_per_validation": 5000,
         "log_weight_path": args.weight_path, 
         "log_tensorboard_path": args.log_path,        
+        "log_tensorboard_update_freq": 1000,
         "log_test_path": args.test_path,
-        "crops_per_image": args.crops_per_image
+        "crops_per_image": args.crops_per_image        
     }
 
     # If we are doing transfer learning, only train top layer of the generator
@@ -201,9 +204,9 @@ if __name__ == '__main__':
         log_test_frequency=10000,
         first_epoch=1000000,
         **common
-    )"""
+    )
         
-    # Fine-tune GAN
+    # Re-initialize & fine-tune GAN - load generator & discriminator weights
     gan = SRGAN(
         gen_lr=1e-5, dis_lr=1e-5,
         upscaling_factor=args.scale
