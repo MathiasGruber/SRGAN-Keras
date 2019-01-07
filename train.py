@@ -5,6 +5,12 @@ from argparse import ArgumentParser
 from PIL import Image
 import matplotlib.pyplot as plt
 
+# Import backend without the "Using X Backend" message
+stderr = sys.stderr
+sys.stderr = open(os.devnull, 'w')
+from keras import backend as K
+sys.stderr = stderr
+
 from libs.srgan import SRGAN
 from libs.util import plot_test_images, DataLoader
 
