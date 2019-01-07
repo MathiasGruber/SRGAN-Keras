@@ -52,6 +52,12 @@ def parse_args():
         type=int, default=2,
         help='How much should we upscale images'
     )
+
+    parser.add_argument(
+        '-scaleFrom', '--scaleFrom',
+        type=int, default=None,
+        help='Perform transfer learning from lower-upscale model'
+    )
         
     parser.add_argument(
         '-workers', '--workers',
@@ -111,21 +117,81 @@ if __name__ == '__main__':
         "log_test_path": args.test_path,
         "crops_per_image": args.crops_per_image
     }
+
+    # If we are doing transfer learning, only train top layer of the generator
+    # And load weights from lower-upscaling model    
+    if args.scaleFrom:
+
+        # Find lower-upscaling model results
+        BASE_G = os.path.join(args.weight_path, 'SRGAN_'+args.dataname+'_generator_'+str(args.scaleFrom)+'X.h5')
+        BASE_D = os.path.join(args.weight_path, 'SRGAN_'+args.dataname+'_discriminator_'+str(args.scaleFrom)+'X.h5')
+        assert os.path.isfile(BASE_G), 'Could not find '+BASE_G
+        assert os.path.isfile(BASE_D), 'Could not find '+BASE_D
+        
+        # Load previous model with weights, and re-save weights so that name ordering will match new model
+        prev_gan = SRGAN(upscaling_factor=args.scaleFrom)
+        prev_gan.load_weights(BASE_G, BASE_D)
+        prev_gan.save_weights(args.weight_path+'SRGAN_'+args.dataname)
+        del prev_gan
+        K.reset_uids()
+        gc.collect()
+
+        # Load the properly named weights onto this model
+        gan = SRGAN(upscaling_factor=args.scale)
+        gan.load_weights(BASE_G, BASE_D, by_name=True)
+
+        # 4X -> 8X block always trainable. 2X -> 4X only if going from 2X.
+        up_trainable = ["3"]
+        if args.scaleFrom == 2:
+            up_trainable.append("2")
+        trainable=False
+        for layer in gan.generator.layers:
+            if 'upSample' in layer.name and all([not layer.name.endswith('_'+s) for s in up_trainable]) :
+                trainable = True            
+            layer.trainable = trainable
+        
+        # Train with 1 epoch on top layer
+        gan.compile_generator(gan.generator)
+        gan.train_generator(
+            epochs=1,
+            dataname='SRResNet_'+args.dataname,        
+            steps_per_epoch=100000,        
+            log_tensorboard_name='SRResNet_'+args.dataname,        
+            **common
+        )
+
+        # Train entire generator for 3 epochs
+        gan = SRGAN(upscaling_factor=args.scale)
+        gan.load_weights(
+            os.path.join(args.weight_path, 'SRResNet_'+args.dataname+'_{}X'.format(args.scale)), 
+        )
+        gan.train_generator(
+            epochs=3,
+            dataname='SRResNet_'+args.dataname,        
+            steps_per_epoch=100000,        
+            log_tensorboard_name='SRResNet_'+args.dataname,        
+            **common
+        )
     
-    # Create the SRGAN model
-    """gan = SRGAN(
+    else:
+
+        # As in paper - train for 10 epochs
+        gan = SRGAN(upscaling_factor=args.scale)    
+        gan.train_generator(
+            epochs=10,
+            dataname='SRResNet_'+args.dataname,        
+            steps_per_epoch=100000,        
+            log_tensorboard_name='SRResNet_'+args.dataname,        
+            **common
+        )
+
+    # Re-initialize & train the GAN - load just created generator weights
+    gan = SRGAN(
         upscaling_factor=args.scale
     )
-    gan.train_generator(
-        epochs=10,
-        dataname='SRResNet_'+args.dataname,        
-        steps_per_epoch=100000,        
-        log_tensorboard_name='SRResNet_'+args.dataname,
-        log_tensorboard_update_freq=1000,
-        **common
+    gan.load_weights(
+        os.path.join(args.weight_path, 'SRResNet_'+args.dataname+'_{}X'.format(args.scale)), 
     )
-
-    # Train the GAN
     gan.train_srgan(
         epochs=100000,
         dataname='SRGAN_'+args.dataname,
