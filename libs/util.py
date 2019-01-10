@@ -123,7 +123,7 @@ class DataLoader(Sequence):
                         img_crops.append(self.random_crop(img_hr, (self.height_hr, self.width_hr)))
                 else:
                     img_crops = [img_hr]
- 
+
                 # Downscale the HR images and save
                 for img_hr in img_crops:
 
@@ -151,6 +151,7 @@ class DataLoader(Sequence):
                     imgs_lr.append(img_lr)
                 
             except Exception as e:
+                # print(e)
                 pass
             finally:
                 cur_idx += 1
