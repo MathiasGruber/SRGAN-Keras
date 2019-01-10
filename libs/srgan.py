@@ -36,7 +36,8 @@ class SRGAN():
         height_lr=24, width_lr=24, channels=3,
         upscaling_factor=4, 
         gen_lr=1e-4, dis_lr=1e-4, 
-        loss_weights=[1e-3, 0.006], # VGG scaled with 1/12.75 as in paper
+        # VGG scaled with 1/12.75 as in paper
+        loss_weights=[1e-3, 0.006], 
         training_mode=True
     ):
         """        
@@ -70,11 +71,15 @@ class SRGAN():
         
         # Scaling of losses
         self.loss_weights = loss_weights
+
+        # Gan setup settings
+        self.gan_loss = 'mse'
+        self.dis_loss = 'binary_crossentropy'
         
         # Build & compile the generator network
         self.generator = self.build_generator()
         self.compile_generator(self.generator)
-        
+
         # If training, build rest of GAN network
         if training_mode:
             self.vgg = self.build_vgg()
@@ -90,7 +95,6 @@ class SRGAN():
         """Save the generator and discriminator networks"""
         self.generator.save_weights("{}_generator_{}X.h5".format(filepath, self.upscaling_factor))
         self.discriminator.save_weights("{}_discriminator_{}X.h5".format(filepath, self.upscaling_factor))
-
 
     def load_weights(self, generator_weights=None, discriminator_weights=None, **kwargs):
         if generator_weights:
@@ -120,7 +124,6 @@ class SRGAN():
 
         return Lambda(subpixel, output_shape=subpixel_shape, name=name)
 
-
     def build_vgg(self):
         """
         Load pre-trained VGG weights from keras applications
@@ -138,15 +141,7 @@ class SRGAN():
         # Create model and compile
         model = Model(inputs=img, outputs=vgg(img))
         model.trainable = False
-        return model
-    
-    def compile_vgg(self, model):
-        """Compile the generator with appropriate optimizer"""
-        model.compile(
-            loss='mse',
-            optimizer=Adam(0.0001, 0.9),
-            metrics=['accuracy']
-        )
+        return model    
     
     def preprocess_vgg(self, x):
         """Take a HR image [-1, 1], convert to [0, 255], then to input for VGG network"""
@@ -154,7 +149,6 @@ class SRGAN():
             return preprocess_input((x+1)*127.5)
         else:            
             return Lambda(lambda x: preprocess_input(tf.add(x, 1) * 127.5))(x)     
-
 
     def build_generator(self, residual_blocks=16):
         """
@@ -217,15 +211,7 @@ class SRGAN():
 
         # Create model and compile
         model = Model(inputs=lr_input, outputs=hr_output)        
-        return model
-
-    def compile_generator(self, model):
-        """Compile the generator with appropriate optimizer"""
-        model.compile(
-            loss='mse',
-            optimizer=Adam(self.gen_lr, 0.9),
-            metrics=['mse', self.PSNR]
-        )
+        return model    
 
     def build_discriminator(self, filters=64):
         """
@@ -261,14 +247,6 @@ class SRGAN():
         model = Model(inputs=img, outputs=x)
         return model
 
-    def compile_discriminator(self, model):
-        """Compile the generator with appropriate optimizer"""
-        model.compile(
-            loss='binary_crossentropy',
-            optimizer=Adam(self.dis_lr, 0.9),
-            metrics=['accuracy']
-        )
-
     def build_srgan(self):
         """Create the combined SRGAN network"""
 
@@ -297,10 +275,34 @@ class SRGAN():
         model = Model(inputs=img_lr, outputs=[generated_check, generated_features])        
         return model
 
+    def compile_vgg(self, model):
+        """Compile the generator with appropriate optimizer"""
+        model.compile(
+            loss='mse',
+            optimizer=Adam(0.0001, 0.9),
+            metrics=['accuracy']
+        )
+
+    def compile_generator(self, model):
+        """Compile the generator with appropriate optimizer"""
+        model.compile(
+            loss=self.gan_loss,
+            optimizer=Adam(self.gen_lr, 0.9),
+            metrics=['mse', self.PSNR]
+        )
+
+    def compile_discriminator(self, model):
+        """Compile the generator with appropriate optimizer"""
+        model.compile(
+            loss=self.dis_loss,
+            optimizer=Adam(self.dis_lr, 0.9),
+            metrics=['accuracy']
+        )
+
     def compile_srgan(self, model):
         """Compile the GAN with appropriate optimizer"""
         model.compile(
-            loss=['binary_crossentropy', 'mse'],
+            loss=[self.dis_loss, self.gan_loss],
             loss_weights=self.loss_weights,
             optimizer=Adam(self.gen_lr, 0.9)
         )
