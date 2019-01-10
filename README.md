@@ -1,6 +1,6 @@
 # SRGAN-Keras
 Keras implementation of ["Photo-Realistic Single Image Super-Resolution Using a Generative Adversarial Network"](https://arxiv.org/abs/1609.04802)
-<img src='images/main_samples.png' width="100%" />
+<img src='images/main_samples_with_psnr.png' width="100%" />
 
 ## 1. Architecture
 The generator creates a high-resolution (HR) image (4x upscaled) from a corresponding low-resolution (LR) image. The discriminator distinguishes the generated (fake) HR images from the original HR images.
